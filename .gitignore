@@ -33,3 +33,6 @@
 
 # exuberant-ctags
 tags
+
+# fuse trash
+.fuse_hidden*

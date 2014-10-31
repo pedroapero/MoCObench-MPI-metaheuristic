@@ -39,6 +39,13 @@ void interruption_signal_handler(int sig) {
 #define SOLUTION_LENGTH 8 // N
 #define RESULT_DIMENSION 2 // M
 
+// the tuple solution - vector
+struct result_t {
+	// TODO: remove hard coded values!! (input is size N, below output is M, but impossible to use them to fix array size)
+	unsigned int input[SOLUTION_LENGTH]; // tested matrix 
+	int output[RESULT_DIMENSION]; // objvect
+};
+
 int main(int argc, char *argv[]) {
   //-----------------------------------------------
 	// MPI initialisation
@@ -83,42 +90,85 @@ int main(int argc, char *argv[]) {
 		struct sigaction action;
 		sigaction(SIGTERM, &action, NULL);
 
-		//-----------------------------------------------
-		// build random solutions
-		srand(time(NULL));
-		for(unsigned i=0 ; i<(procs-1) ; i++)
-			for(unsigned j=0 ; j<N ; j++)
-				solutions[i][j] = (rand() / (double) RAND_MAX) < 0.5 ? 0 : 1;
+		std::vector<result_t> best_solutions;
 
-		//-----------------------------------------------
-		// process communications (distribute the tasks)
-		// one array to be sent to each worker (procs-1 arrays)
-		MPI_Scatter(solutions, N, MPI_INT, solution, N, MPI_INT, PROC_NULL, com);
+		while(true) {
+			//-----------------------------------------------
+			// build random solutions
+			srand(time(NULL));
+			for(unsigned i=0 ; i<(procs-1) ; i++)
+				for(unsigned j=0 ; j<N ; j++)
+					solutions[i][j] = (rand() / (double) RAND_MAX) < 0.5 ? 0 : 1;
 
-		// retrieve computed objective vectors
-		MPI_Gather(objVec, M, MPI_INT, computedObjVecs, M, MPI_INT, PROC_NULL, com);
+			//-----------------------------------------------
+			// process communications (distribute the tasks)
+			// one array to be sent to each worker (procs-1 arrays)
+			MPI_Scatter(solutions, N, MPI_INT, solution, N, MPI_INT, PROC_NULL, com);
 
-		//-----------------------------------------------
-		// ouput : print the solution and its objective vector (TEMPORARY)
-		for(unsigned int i=0; i<procs-1 ; i++) {
-			printf("result for process %d: ", i);
-			for(unsigned int j=0; j<M ; j++)
-				printf("%d ", computedObjVecs[i][j]);
-			printf("%d\ncorresponding solution: ", N);
-			for(unsigned int j=0; j<N; j++)
-				printf("%d", solutions[i][j]);
-			printf("\n\n");
+			// retrieve computed objective vectors
+			MPI_Gather(objVec, M, MPI_INT, computedObjVecs, M, MPI_INT, PROC_NULL, com);
+
+			//-----------------------------------------------
+			// filter solutions, keep the best ones // TODO: do this between scatter and gather (during the evaluation process) -> need two solutions and objVect arrays
+			unsigned process_iterator=0;
+			result_t new_solution;
+			// the first time, keep the first solution
+			if(best_solutions.size() == 0) {
+				for(unsigned i=0; i<N; i++)
+					new_solution.input[i] = solutions[0][i]; // can't use std::copy here...)
+				for(unsigned i=0; i<M; i++)
+					new_solution.output[i] = computedObjVecs[0][i];
+				best_solutions.push_back(new_solution);
+				process_iterator++;
+			}
+
+			for( ; process_iterator<(procs-1) ; process_iterator++) {
+				bool keep_it = true;
+				unsigned i = 0;
+				// find out if the solution is worth being kept
+				while(i < best_solutions.size() && keep_it) {
+					if(best_solutions.at(i).output[0] >= computedObjVecs[process_iterator][0]) // TODO: remove hard coded values
+						if(best_solutions.at(i).output[1] >= computedObjVecs[process_iterator][1])
+							keep_it = false;
+					i++;
+				}
+				// erase outdated values
+				if(keep_it) {
+					i = 0;
+					while(i < best_solutions.size()) {
+						if(best_solutions.at(i).output[0] <= computedObjVecs[process_iterator][0])
+							if(best_solutions.at(i).output[1] <= computedObjVecs[process_iterator][1])
+								best_solutions.erase(best_solutions.begin()+i);
+						i++;
+					}
+					// save new optimal solution
+					for(unsigned i=0; i<N; i++)
+						new_solution.input[i] = solutions[process_iterator][i]; // can't use std::copy here...
+					for(unsigned i=0; i<M; i++)
+						new_solution.output[i] = computedObjVecs[process_iterator][i];
+					best_solutions.push_back(new_solution);
+				}
+			}
+
+			//-----------------------------------------------
+			// ouput : print the solution and its objective vector (TEMPORARY)
+			printf("best solutions so far:\n");
+			for(unsigned int i=0; i<best_solutions.size(); i++)
+				printf("%d : (%d ; %d)\n",i,best_solutions.at(i).output[0],best_solutions.at(i).output[1]);
+			sleep(5);
 		}
 	}
 
 	//-----------------------------------------------
 	// slaves: evaluate your solution
 	if(self != PROC_NULL) {
-		MPI_Scatter( solutions, N, MPI_INT, solution, N, MPI_INT, PROC_NULL, com);
-		eval(&instance,(int*) solution,objVec); // can't use mubqp.eval (we need arrays instead of vectors)
+		while(true) {
+			MPI_Scatter( solutions, N, MPI_INT, solution, N, MPI_INT, PROC_NULL, com);
+			eval(&instance,(int*) solution,objVec); // can't use mubqp.eval (we need arrays instead of vectors)
 
-		// send results
-		MPI_Gather( objVec, M, MPI_INT, computedObjVecs, M, MPI_INT, PROC_NULL, com);
+			// send results
+			MPI_Gather( objVec, M, MPI_INT, computedObjVecs, M, MPI_INT, PROC_NULL, com);
+		}
 	}
 
   return 0;
