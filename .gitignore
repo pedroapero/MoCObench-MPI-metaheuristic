@@ -26,3 +26,10 @@
 *.exe
 *.out
 *.app
+
+# vIM temporary files
+*.swp
+*~
+
+# exuberant-ctags
+tags
