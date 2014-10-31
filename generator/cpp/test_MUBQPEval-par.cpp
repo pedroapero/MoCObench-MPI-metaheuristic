@@ -24,6 +24,13 @@ MPI_Status status;
 
 #define PROC_NULL 0
 
+void interruption_signal_handler(int sig) {
+	fflush(stdout);
+	MPI_Abort(com,EXIT_SUCCESS);
+	MPI_Finalize();
+	exit(sig);
+}
+
 /***************************************************************/
 /*                 Main                                        */
 /***************************************************************/
@@ -71,6 +78,11 @@ int main(int argc, char *argv[]) {
 
 	// Master
 	if(self == PROC_NULL) {
+		//-----------------------------------------------
+		// SIGTERM manual interruption handling
+		struct sigaction action;
+		sigaction(SIGTERM, &action, NULL);
+
 		//-----------------------------------------------
 		// build random solutions
 		srand(time(NULL));
