@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include "mpi.h"
 #include "signal.h"
+#include "gnuplot_i.hpp"
 
 using namespace std;
 
@@ -92,6 +93,10 @@ int main(int argc, char *argv[]) {
 
 		std::vector<result_t> best_solutions;
 
+		Gnuplot gnuplot("test");
+		gnuplot.set_grid();
+
+
 		while(true) {
 			//-----------------------------------------------
 			// build random solutions
@@ -103,7 +108,7 @@ int main(int argc, char *argv[]) {
 			//-----------------------------------------------
 			// process communications (distribute the tasks)
 			// one array to be sent to each worker (procs-1 arrays)
-			MPI_Scatter(solutions, N, MPI_INT, solution, N, MPI_INT, PROC_NULL, com);
+			MPI_Scatter(solutions, N, MPI_INT, solution, N, MPI_INT, PROC_NULL, com); // TODO: avoid blocking collective communication primitives
 
 			// retrieve computed objective vectors
 			MPI_Gather(objVec, M, MPI_INT, computedObjVecs, M, MPI_INT, PROC_NULL, com);
@@ -151,11 +156,34 @@ int main(int argc, char *argv[]) {
 			}
 
 			//-----------------------------------------------
+			// plot the results // TODO: do this between scatter and gather (during the evaluation process) or in another process
+			std::vector<int> x,y;
+			int x_min = INT_MAX, x_max = INT_MIN, y_min = INT_MAX, y_max = INT_MIN;
+			for(unsigned int i=0; i<best_solutions.size(); i++) {
+				x.push_back(best_solutions.at(i).output[0]); // TODO: clean that (faster way to transmit points to gnuplot?)
+				y.push_back(best_solutions.at(i).output[1]);
+			}
+			gnuplot.reset_plot();
+			gnuplot.remove_tmpfiles();
+			gnuplot.plot_xy(x, y, "best results");
+			
+			//-----------------------------------------------
 			// ouput : print the solution and its objective vector (TEMPORARY)
+			/*
+			for(unsigned int i=0; i<procs-1 ; i++) {
+				printf("result for process %d: ", i);
+				for(unsigned int j=0; j<M ; j++)
+					printf("%d ", computedObjVecs[i][j]);
+				printf("%d\ncorresponding solution: ", N);
+				for(unsigned int j=0; j<N; j++)
+					printf("%d", solutions[i][j]);
+				printf("\n\n");
+			}
+			*/
 			printf("best solutions so far:\n");
 			for(unsigned int i=0; i<best_solutions.size(); i++)
 				printf("%d : (%d ; %d)\n",i,best_solutions.at(i).output[0],best_solutions.at(i).output[1]);
-			sleep(5);
+			/* sleep(1); */
 		}
 	}
 
