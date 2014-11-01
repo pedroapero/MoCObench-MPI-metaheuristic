@@ -32,9 +32,6 @@ void interruption_signal_handler(int sig) {
 	exit(sig);
 }
 
-/***************************************************************/
-/*                 Main                                        */
-/***************************************************************/
 
 // TODO: use real instance values instead of this dirty workaround
 #define SOLUTION_LENGTH 8 // N
@@ -47,6 +44,54 @@ struct result_t {
 	int output[RESULT_DIMENSION]; // objvect
 };
 
+//-----------------------------------------------
+// filter solutions, keep the best ones
+void filter_solutions(std::vector<result_t> & best_solutions, unsigned int solutions[][SOLUTION_LENGTH], unsigned int solution_length, int computedObjVecs[][RESULT_DIMENSION], unsigned int result_length ) {
+	unsigned process_iterator=0;
+	result_t new_solution;
+	// the first time, keep the first solution
+	if(best_solutions.size() == 0) {
+		for(unsigned i=0; i<solution_length; i++)
+			new_solution.input[i] = solutions[1][i]; // can't use std::copy here...)
+		for(unsigned i=0; i<result_length; i++)
+			new_solution.output[i] = computedObjVecs[1][i];
+		best_solutions.push_back(new_solution);
+		process_iterator++;
+	}
+
+	for( ; process_iterator<(procs-1) ; process_iterator++) {
+		bool keep_it = true;
+		unsigned i = 0;
+		// find out if the solution is worth being kept
+		while(i < best_solutions.size() && keep_it) {
+			if(best_solutions.at(i).output[0] >= computedObjVecs[process_iterator][0]) // TODO: remove hard coded values
+				if(best_solutions.at(i).output[1] >= computedObjVecs[process_iterator][1])
+					keep_it = false;
+			i++;
+		}
+		// erase outdated values
+		if(keep_it) {
+			i = 0;
+			while(i < best_solutions.size()) {
+				if(best_solutions.at(i).output[0] <= computedObjVecs[process_iterator][0])
+					if(best_solutions.at(i).output[1] <= computedObjVecs[process_iterator][1])
+						best_solutions.erase(best_solutions.begin()+i);
+				i++;
+			}
+			// save new optimal solution
+			for(unsigned i=0; i<solution_length; i++)
+				new_solution.input[i] = solutions[process_iterator][i]; // can't use std::copy here...
+			for(unsigned i=0; i<result_length; i++)
+				new_solution.output[i] = computedObjVecs[process_iterator][i];
+			best_solutions.push_back(new_solution);
+		}
+	}
+}
+
+
+/***************************************************************/
+/*                 Main                                        */
+/***************************************************************/
 int main(int argc, char *argv[]) {
   //-----------------------------------------------
 	// MPI initialisation
@@ -80,9 +125,9 @@ int main(int argc, char *argv[]) {
   unsigned int M = instance.M;
 
 	unsigned int solution[SOLUTION_LENGTH]; // one solution
-	unsigned int solutions[procs-1][SOLUTION_LENGTH]; // solutions sending buffer
+	unsigned int solutions[procs][SOLUTION_LENGTH]; // solutions sending buffer
 	int objVec[M]; // one result
-	int computedObjVecs[procs-1][RESULT_DIMENSION]; // solutions receiving buffer
+	int computedObjVecs[procs][RESULT_DIMENSION]; // solutions receiving buffer
 
 	// Master
 	if(self == PROC_NULL) {
@@ -107,53 +152,15 @@ int main(int argc, char *argv[]) {
 
 			//-----------------------------------------------
 			// process communications (distribute the tasks)
-			// one array to be sent to each worker (procs-1 arrays)
+			// one array to be sent to each worker, including PROC_NULL
 			MPI_Scatter(solutions, N, MPI_INT, solution, N, MPI_INT, PROC_NULL, com); // TODO: avoid blocking collective communication primitives
+			eval(&instance,(int*) solution,objVec); // can't use mubqp.eval (we need arrays instead of vectors)
 
 			// retrieve computed objective vectors
 			MPI_Gather(objVec, M, MPI_INT, computedObjVecs, M, MPI_INT, PROC_NULL, com);
 
-			//-----------------------------------------------
-			// filter solutions, keep the best ones // TODO: do this between scatter and gather (during the evaluation process) -> need two solutions and objVect arrays
-			unsigned process_iterator=0;
-			result_t new_solution;
-			// the first time, keep the first solution
-			if(best_solutions.size() == 0) {
-				for(unsigned i=0; i<N; i++)
-					new_solution.input[i] = solutions[0][i]; // can't use std::copy here...)
-				for(unsigned i=0; i<M; i++)
-					new_solution.output[i] = computedObjVecs[0][i];
-				best_solutions.push_back(new_solution);
-				process_iterator++;
-			}
-
-			for( ; process_iterator<(procs-1) ; process_iterator++) {
-				bool keep_it = true;
-				unsigned i = 0;
-				// find out if the solution is worth being kept
-				while(i < best_solutions.size() && keep_it) {
-					if(best_solutions.at(i).output[0] >= computedObjVecs[process_iterator][0]) // TODO: remove hard coded values
-						if(best_solutions.at(i).output[1] >= computedObjVecs[process_iterator][1])
-							keep_it = false;
-					i++;
-				}
-				// erase outdated values
-				if(keep_it) {
-					i = 0;
-					while(i < best_solutions.size()) {
-						if(best_solutions.at(i).output[0] <= computedObjVecs[process_iterator][0])
-							if(best_solutions.at(i).output[1] <= computedObjVecs[process_iterator][1])
-								best_solutions.erase(best_solutions.begin()+i);
-						i++;
-					}
-					// save new optimal solution
-					for(unsigned i=0; i<N; i++)
-						new_solution.input[i] = solutions[process_iterator][i]; // can't use std::copy here...
-					for(unsigned i=0; i<M; i++)
-						new_solution.output[i] = computedObjVecs[process_iterator][i];
-					best_solutions.push_back(new_solution);
-				}
-			}
+			// filter
+			filter_solutions(best_solutions, solutions, N, computedObjVecs, M); // TODO: do this between scatter and gather (during the evaluation process) -> need two solutions and objVect arrays
 
 			//-----------------------------------------------
 			// plot the results // TODO: do this between scatter and gather (during the evaluation process) or in another process
@@ -180,6 +187,9 @@ int main(int argc, char *argv[]) {
 				printf("\n\n");
 			}
 			*/
+
+			//-----------------------------------------------
+			// output: print best results (without the corresponding vectors)
 			printf("best solutions so far:\n");
 			for(unsigned int i=0; i<best_solutions.size(); i++)
 				printf("%d : (%d ; %d)\n",i,best_solutions.at(i).output[0],best_solutions.at(i).output[1]);
@@ -196,6 +206,7 @@ int main(int argc, char *argv[]) {
 
 			// send results
 			MPI_Gather( objVec, M, MPI_INT, computedObjVecs, M, MPI_INT, PROC_NULL, com);
+			// TODONOW: evaluate the solution's neighborhood, filter, send back to PROC_NULL (MPI_SEND as unknown number of result => use MPI TAGS)
 		}
 	}
 
