@@ -174,11 +174,11 @@ int main(int argc, char *argv[]) {
 		// process communications (distribute the tasks)
 		// one array to be sent to each worker, including PROC_NULL
 		MPI_Scatter(solutions, N, MPI_INT, solution, N, MPI_INT, PROC_NULL, com); // TODO: avoid blocking collective communication primitives
-		free(solutions); // no longer used
+		// free(solutions); // no longer used
 
 		while(true) {
 			// receive
-			MPI_Recv(&result, 1, MPI_result_t, MPI_ANY_SOURCE,MPI_ANY_TAG, com, &status);
+			MPI_Recv(&result, 1, MPI_result_t, MPI_ANY_SOURCE,MPI_ANY_TAG, com, &status); // TODO: check if the result is received correctly
 
 			// filter
 			filter_solutions(best_solutions, result); // TODO: do this between scatter and gather (during the evaluation process) -> need two solutions and objVect arrays
