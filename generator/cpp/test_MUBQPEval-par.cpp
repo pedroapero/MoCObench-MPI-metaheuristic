@@ -54,7 +54,7 @@ void generate_solution(unsigned int solution[SOLUTION_LENGTH], int size) {
 		solution[i] = (rand() / (double) RAND_MAX) < 0.5 ? 0 : 1;
 }
 //-----------------------------------------------
-// filter non optimal solutions, save the best ones
+// filter non optimal solutions, save the best ones. will replace a solution if re-filtered
 void filter_solutions(std::vector<result_t> & best_solutions, result_t new_solution) {
 	// the first time, keep the first solution
 	if(best_solutions.size() == 0) {
@@ -65,8 +65,8 @@ void filter_solutions(std::vector<result_t> & best_solutions, result_t new_solut
 	unsigned int i = 0;
 	// find out if the solution is worth being kept
 	while(i < best_solutions.size() && keep_it) {
-		if(best_solutions.at(i).output[0] >= new_solution.output[0]) // TODO: remove hard coded values
-			if(best_solutions.at(i).output[1] >= new_solution.output[1])
+		if(best_solutions.at(i).output[0] > new_solution.output[0]) // TODO: remove hard coded values
+			if(best_solutions.at(i).output[1] > new_solution.output[1])
 				keep_it = false;
 		i++;
 	}
@@ -81,19 +81,6 @@ void filter_solutions(std::vector<result_t> & best_solutions, result_t new_solut
 		}
 		// save new optimal solution
 		best_solutions.push_back(new_solution);
-	}
-}
-
-//-----------------------------------------------
-// Generate a solution's direct neighbours
-void generate_neighbours(unsigned int solution[SOLUTION_LENGTH], int solution_length, unsigned int neighboring_solutions[SOLUTION_LENGTH][SOLUTION_LENGTH]) {
-	for(unsigned int neighbor_number=0; neighbor_number<solution_length; neighbor_number++) {
-		for(unsigned int solution_cursor=0; solution_cursor<solution_length; solution_cursor++) {
-			if(solution_cursor == neighbor_number)
-				neighboring_solutions[neighbor_number][solution_cursor] = solution[solution_cursor] == 0 ? 1 : 0;
-			else
-				neighboring_solutions[neighbor_number][solution_cursor] = solution[solution_cursor];
-		}
 	}
 }
 
@@ -133,9 +120,7 @@ int main(int argc, char *argv[]) {
   unsigned int M = instance.M;
 
 	unsigned int solution[SOLUTION_LENGTH]; // one solution
-	unsigned int neighboring_solutions[SOLUTION_LENGTH][SOLUTION_LENGTH];
 	int objVec[RESULT_DIMENSION]; // one result
-	int neighboring_objVecs[RESULT_DIMENSION][RESULT_DIMENSION];
 	std::vector<result_t> best_solutions; // solutions-results storage structure
 
 	//--------------------------------------------
@@ -175,6 +160,10 @@ int main(int argc, char *argv[]) {
 			// receive results
 			do {
 				MPI_Recv(&result, 1, MPI_result_t, MPI_ANY_SOURCE,MPI_ANY_TAG, com, &status); // TODO: check if the result is received correctly
+				printf("result received: ");
+				for(unsigned int i=0; i<N; i++)
+					printf("%d",result.input[i]);
+				printf(" (%d ; %d)\n",result.output[0], result.output[1]);
 				// filter
 				filter_solutions(best_solutions, result); // TODO: do this between scatter and gather (during the evaluation process) -> need two solutions and objVect arrays
 			} while(status.MPI_TAG == 0);
@@ -184,6 +173,7 @@ int main(int argc, char *argv[]) {
 			unsigned solutions_iterator = 0;
 			while(solutions_iterator < best_solutions.size() && !finished) {
 				if(best_solutions.at(solutions_iterator).done == 0) {
+					printf("sending old solution to explore\n");
 					MPI_Send(best_solutions.at(solutions_iterator).input, N, MPI_UNSIGNED, status.MPI_SOURCE, 0, com); // TODO: maybe do something with the tag? (0 else...)
 					best_solutions.at(solutions_iterator).done = 1;
 					finished = true;
@@ -194,6 +184,7 @@ int main(int argc, char *argv[]) {
 			// no more neighbors to explore, let's pick another random solution
 			if(!finished) {
 				generate_solution(solution, N);
+				printf("sending new random solution\n");
 				MPI_Send(solution, N, MPI_UNSIGNED, status.MPI_SOURCE, 0, com);
 			}
 
@@ -227,8 +218,8 @@ int main(int argc, char *argv[]) {
 			// output: print best results (without the corresponding vectors)
 			printf("best solutions so far:\n");
 			for(unsigned int i=0; i<best_solutions.size(); i++)
-				printf("%d : (%d ; %d)\n",i,best_solutions.at(i).output[0],best_solutions.at(i).output[1]);
-			/* sleep(1); */
+				printf("%d : (%d ; %d) done? %d\n",i,best_solutions.at(i).output[0],best_solutions.at(i).output[1],best_solutions.at(i).done);
+			sleep(1);
 		}
 	}
 
@@ -236,6 +227,8 @@ int main(int argc, char *argv[]) {
 	// slaves: evaluate your solution
 	if(self != PROC_NULL) {
 		while(true) {
+			best_solutions.clear();
+			
 			// next seed
 			MPI_Recv(solution, N, MPI_UNSIGNED, PROC_NULL, MPI_ANY_TAG, com, &status);
 
@@ -250,26 +243,46 @@ int main(int argc, char *argv[]) {
 				result.output[i] = objVec[i];
 			result.done = 1; // this is the seed, we are now going to evaluate direct neighbors
 
+
+			printf("solution to filter 1: ");
+			for(unsigned int i=0; i<N; i++)
+				printf("%d",result.input[i]);
+			printf("\n");
 			filter_solutions(best_solutions, result);
 
 			// iterate throw neighbours (N neighbours for a solution of length N)
+			unsigned int solution_tmp[SOLUTION_LENGTH];
 			for(unsigned int solution_cursor=0; solution_cursor<N; solution_cursor++) {
-				solution[solution_cursor] = (solution[solution_cursor] == 0 ? 1 : 0);
-				eval(&instance,(int*) solution,objVec); // can't use mubqp.eval (we need arrays instead of vectors)
 				for(unsigned int i=0; i<N; i++)
-					result.input[i] = solution[i];
+					solution_tmp[i] = solution[i];
+				solution_tmp[solution_cursor] = solution[solution_cursor] == 0 ? 1 : 0;
+				eval(&instance,(int*) solution_tmp,objVec); // can't use mubqp.eval (we need arrays instead of vectors)
+
+				for(unsigned int i=0; i<N; i++)
+					result.input[i] = solution_tmp[i];
 				for(unsigned int i=0; i<M; i++)
 					result.input[i] = objVec[i];
 				result.done = 0;
+				printf("solution to filter 2: ");
+				for(unsigned int i=0; i<N; i++)
+					printf("%d",result.input[i]);
+				printf("\n");
 				filter_solutions(best_solutions, result);
-				solution[solution_cursor] = (solution[solution_cursor] == 0 ? 1 : 0);
 			}
 
 			// send results
-			for(unsigned int i=0; i<best_solutions.size()-1; i++)
+			for(unsigned int i=0; i<best_solutions.size()-1; i++) {
+				printf("sending result: ");
+				for(unsigned int j=0; j<N; j++)
+					printf("%d",best_solutions.at(i).input[j]);
+				printf(" (%d ; %d) done? %d\n",best_solutions.at(i).output[0], best_solutions.at(i).output[1], best_solutions.at(i).done);
 				MPI_Send(&best_solutions.at(i), 1, MPI_result_t, PROC_NULL, 0, com); // TODO: send all at once
+			}
+			printf("sending result: ");
+			for(unsigned int i=0; i<N; i++)
+				printf("%d",best_solutions.at(best_solutions.size()-1).input[i]);
+			printf(" (%d ; %d) done? %d\n",best_solutions.at(best_solutions.size()-1).output[0], best_solutions.at(best_solutions.size()-1).output[1], best_solutions.at(best_solutions.size()-1).done);
 			MPI_Send(&best_solutions.at(best_solutions.size()-1), 1, MPI_result_t, PROC_NULL, 1, com);
-
 		}
 	}
 
