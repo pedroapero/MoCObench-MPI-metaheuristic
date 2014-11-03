@@ -44,12 +44,13 @@ struct result_t {
 	unsigned int input[SOLUTION_LENGTH]; // tested matrix 
 	int output[RESULT_DIMENSION]; // objvect
 	short int done; // 1 if we have evaluated all its neighbors, 0 else (MPI_BOOL does not exist)
-};
+} result;
+
 
 //-----------------------------------------------
 // generate a solution
 void generate_solution(unsigned int solution[SOLUTION_LENGTH], int size) {
-	for(unsigned i=0 ; i<size ; i++)
+	for(unsigned int i=0 ; i<size ; i++)
 		solution[i] = (rand() / (double) RAND_MAX) < 0.5 ? 0 : 1;
 }
 //-----------------------------------------------
@@ -61,7 +62,7 @@ void filter_solutions(std::vector<result_t> & best_solutions, result_t new_solut
 		return;
 	}
 	bool keep_it = true;
-	unsigned i = 0;
+	unsigned int i = 0;
 	// find out if the solution is worth being kept
 	while(i < best_solutions.size() && keep_it) {
 		if(best_solutions.at(i).output[0] >= new_solution.output[0]) // TODO: remove hard coded values
@@ -133,12 +134,9 @@ int main(int argc, char *argv[]) {
 
 	unsigned int solution[SOLUTION_LENGTH]; // one solution
 	unsigned int neighboring_solutions[SOLUTION_LENGTH][SOLUTION_LENGTH];
-	unsigned int solutions[procs][SOLUTION_LENGTH]; // solutions sending buffer
 	int objVec[RESULT_DIMENSION]; // one result
 	int neighboring_objVecs[RESULT_DIMENSION][RESULT_DIMENSION];
-	int computedObjVecs[procs][RESULT_DIMENSION]; // solutions receiving buffer
 	std::vector<result_t> best_solutions; // solutions-results storage structure
-	struct result_t result ; // a couple solution-result
 
 	//--------------------------------------------
 	// MPIze the type result_t
@@ -165,32 +163,30 @@ int main(int argc, char *argv[]) {
 		gnuplot.set_grid();
 
 		//-----------------------------------------------
-		// build random solutions
-		srand(time(NULL));
-		for(unsigned i=0 ; i<(procs-1) ; i++)
-			generate_solution(solutions[i], N);
-
-		//-----------------------------------------------
 		// process communications (distribute the tasks)
-		// one array to be sent to each worker, including PROC_NULL
-		MPI_Scatter(solutions, N, MPI_INT, solution, N, MPI_INT, PROC_NULL, com); // TODO: avoid blocking collective communication primitives
-		// free(solutions); // no longer used
+		// one random solution to be sent to each worker
+		srand(time(NULL));
+		for(unsigned int p=1; p<procs; p++) {
+			generate_solution(solution, N);
+			MPI_Send(solution, N, MPI_UNSIGNED, p, 0, com); // TODO: maybe do something with the tag? (0 else...)
+		}
 
 		while(true) {
-			// receive
-			MPI_Recv(&result, 1, MPI_result_t, MPI_ANY_SOURCE,MPI_ANY_TAG, com, &status); // TODO: check if the result is received correctly
-
-			// filter
-			filter_solutions(best_solutions, result); // TODO: do this between scatter and gather (during the evaluation process) -> need two solutions and objVect arrays
+			// receive results
+			do {
+				MPI_Recv(&result, 1, MPI_result_t, MPI_ANY_SOURCE,MPI_ANY_TAG, com, &status); // TODO: check if the result is received correctly
+				// filter
+				filter_solutions(best_solutions, result); // TODO: do this between scatter and gather (during the evaluation process) -> need two solutions and objVect arrays
+			} while(status.MPI_TAG == 0);
 
 			// send next seed
-			bool finished = true;
+			bool finished = false;
 			unsigned solutions_iterator = 0;
-			while(solutions_iterator < best_solutions.size() && finished) {
+			while(solutions_iterator < best_solutions.size() && !finished) {
 				if(best_solutions.at(solutions_iterator).done == 0) {
 					MPI_Send(best_solutions.at(solutions_iterator).input, N, MPI_UNSIGNED, status.MPI_SOURCE, 0, com); // TODO: maybe do something with the tag? (0 else...)
 					best_solutions.at(solutions_iterator).done = 1;
-					finished = false;
+					finished = true;
 				}
 				solutions_iterator++;
 			}
@@ -232,33 +228,37 @@ int main(int argc, char *argv[]) {
 			printf("best solutions so far:\n");
 			for(unsigned int i=0; i<best_solutions.size(); i++)
 				printf("%d : (%d ; %d)\n",i,best_solutions.at(i).output[0],best_solutions.at(i).output[1]);
-			sleep(1);
+			/* sleep(1); */
 		}
 	}
 
 	//-----------------------------------------------
 	// slaves: evaluate your solution
 	if(self != PROC_NULL) {
-		MPI_Scatter( solutions, N, MPI_INT, solution, N, MPI_INT, PROC_NULL, com);
-
 		while(true) {
+			// next seed
+			MPI_Recv(solution, N, MPI_UNSIGNED, PROC_NULL, MPI_ANY_TAG, com, &status);
+
 			// TODO: avoid re-evaluating the seed when it is not randomly generated, can be checked using the TAG (possible to send a tag with Scatter?)
 			eval(&instance,(int*) solution,objVec); // can't use mubqp.eval (we need arrays instead of vectors)
+			// ---------------------------------------------------------
+			// copy solution and objVec to result
 			// TODO: implement a result_t(int[], int[]) constructor
-			for(unsigned i=0; i<N; i++)
+			for(unsigned int i=0; i<N; i++)
 				result.input[i] = solution[i];
-			for(unsigned i=0; i<M; i++)
-				result.input[i] = objVec[i];
+			for(unsigned int i=0; i<M; i++)
+				result.output[i] = objVec[i];
 			result.done = 1; // this is the seed, we are now going to evaluate direct neighbors
+
 			filter_solutions(best_solutions, result);
 
 			// iterate throw neighbours (N neighbours for a solution of length N)
 			for(unsigned int solution_cursor=0; solution_cursor<N; solution_cursor++) {
 				solution[solution_cursor] = (solution[solution_cursor] == 0 ? 1 : 0);
 				eval(&instance,(int*) solution,objVec); // can't use mubqp.eval (we need arrays instead of vectors)
-				for(unsigned i=0; i<N; i++)
+				for(unsigned int i=0; i<N; i++)
 					result.input[i] = solution[i];
-				for(unsigned i=0; i<M; i++)
+				for(unsigned int i=0; i<M; i++)
 					result.input[i] = objVec[i];
 				result.done = 0;
 				filter_solutions(best_solutions, result);
@@ -266,11 +266,10 @@ int main(int argc, char *argv[]) {
 			}
 
 			// send results
-			for(unsigned i=0; i<best_solutions.size(); i++)
-				MPI_Send(&best_solutions.at(i), 1, MPI_result_t, PROC_NULL, 0, com);
+			for(unsigned int i=0; i<best_solutions.size()-1; i++)
+				MPI_Send(&best_solutions.at(i), 1, MPI_result_t, PROC_NULL, 0, com); // TODO: send all at once
+			MPI_Send(&best_solutions.at(best_solutions.size()-1), 1, MPI_result_t, PROC_NULL, 1, com);
 
-			// next seed
-			MPI_Recv(solution, N, MPI_UNSIGNED, PROC_NULL, MPI_ANY_TAG, com, &status);
 		}
 	}
 
