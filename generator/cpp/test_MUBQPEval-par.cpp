@@ -35,7 +35,7 @@ void interruption_signal_handler(int sig) {
 
 
 // TODO: use real instance values instead of this dirty workaround
-#define SOLUTION_LENGTH 8 // N
+#define SOLUTION_LENGTH 1000 // N
 #define RESULT_DIMENSION 2 // M
 
 // the tuple solution - vector
@@ -167,23 +167,23 @@ int main(int argc, char *argv[]) {
 		//-----------------------------------------------
 		// process communications (distribute the tasks)
 		// one random solution to be sent to each worker
-		for(unsigned int p=1; p<procs; p++) {
-			MPI_Send(solution, N, MPI_UNSIGNED, p, 0, com); // TODO: maybe do something with the tag? (0 else...)
-			printf("PROC_NULL: sending: ");
-			for(unsigned int i=0; i<N; i++)
-				printf("%d",solution[i]);
-		}
+		for(unsigned int p=1; p<procs; p++)
+			MPI_Send(best_solutions[p-1].input, N, MPI_UNSIGNED, p, 0, com); // TODO: maybe do something with the tag? (0 else...)
 
 		while(true) {
+			//-----------------------------------------------
+			// output: print best objective vectors
+			printf("\n\n");
+			for(unsigned int i=0; i<best_solutions.size(); i++)
+				printf("%d %d %d\n",best_solutions.at(i).output[0],best_solutions.at(i).output[1], best_solutions.at(i).done);
+		
+			
 			// receive results
 			do {
 				MPI_Recv(&result, 1, MPI_result_t, MPI_ANY_SOURCE,MPI_ANY_TAG, com, &status);
-				printf("result received: ");
-				for(unsigned int i=0; i<N; i++)
-					printf("%d",result.input[i]);
-				printf(" (%d ; %d)\n",result.output[0], result.output[1]);
+
 				// filter
-				filter_solutions(best_solutions, result.input, N, result.output, M, 0); // TODO: do this between scatter and gather (during the evaluation process) -> need two solutions and objVect arrays
+				filter_solutions(best_solutions, result.input, N, result.output, M, 0);
 			} while(status.MPI_TAG == 0);
 
 			// send next seed
@@ -191,7 +191,7 @@ int main(int argc, char *argv[]) {
 			unsigned solutions_iterator = 0;
 			while(solutions_iterator < best_solutions.size() && !sent) {
 				if(best_solutions.at(solutions_iterator).done == 0) {
-					printf("sending old solution to explore\n");
+					//printf("sending old solution to explore\n");
 					MPI_Send(best_solutions.at(solutions_iterator).input, N, MPI_UNSIGNED, status.MPI_SOURCE, 0, com); // TODO: maybe do something with the tag? (0 else...)
 					best_solutions.at(solutions_iterator).done = 1;
 					sent = true;
@@ -211,7 +211,7 @@ int main(int argc, char *argv[]) {
 
 			//-----------------------------------------------
 			// plot the results // TODO: do this between scatter and gather (during the evaluation process) or in another process
-			std::vector<int> x,y;
+/*			std::vector<int> x,y;
 			int x_min = INT_MAX, x_max = INT_MIN, y_min = INT_MAX, y_max = INT_MIN;
 			for(unsigned int i=0; i<best_solutions.size(); i++) {
 				x.push_back(best_solutions.at(i).output[0]); // TODO: clean that (faster way to transmit points to gnuplot?)
@@ -220,27 +220,9 @@ int main(int argc, char *argv[]) {
 			gnuplot.reset_plot();
 			gnuplot.remove_tmpfiles();
 			gnuplot.plot_xy(x, y, "best results");
-			
-			//-----------------------------------------------
-			// ouput : print the solution and its objective vector (TEMPORARY)
-			/*
-			for(unsigned int i=0; i<procs-1 ; i++) {
-				printf("result for process %d: ", i);
-				for(unsigned int j=0; j<M ; j++)
-					printf("%d ", computedObjVecs[i][j]);
-				printf("%d\ncorresponding solution: ", N);
-				for(unsigned int j=0; j<N; j++)
-					printf("%d", solutions[i][j]);
-				printf("\n\n");
-			}
-			*/
+	*/		
 
-			//-----------------------------------------------
-			// output: print best results (without the corresponding vectors)
-			printf("best solutions so far:\n");
-			for(unsigned int i=0; i<best_solutions.size(); i++)
-				printf("%d : (%d ; %d) done? %d\n",i,best_solutions.at(i).output[0],best_solutions.at(i).output[1],best_solutions.at(i).done);
-			sleep(1);
+			// sleep(1);
 		}
 	}
 
@@ -263,7 +245,7 @@ int main(int argc, char *argv[]) {
 
 				eval(&instance,(int*) solution_tmp, objVec); // can't use mubqp.eval (we need arrays instead of vectors)
 
-				filter_solutions(best_solutions, solution, N, objVec, M, 0);
+				filter_solutions(best_solutions, solution_tmp, N, objVec, M, 0);
 			}
 
 			// send results
