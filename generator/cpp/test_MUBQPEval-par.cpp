@@ -53,26 +53,32 @@ void generate_solution(unsigned int solution[SOLUTION_LENGTH], unsigned int size
 	for(unsigned int i=0 ; i<size ; i++)
 		solution[i] = (rand() / (double) RAND_MAX) < 0.5 ? 0 : 1;
 }
-//-----------------------------------------------
-// filter non optimal solutions, save the best ones. will replace a solution if re-filtered
-void filter_solutions(std::vector<result_t> & best_solutions, unsigned int solution[SOLUTION_LENGTH], unsigned int solution_length, int objVec[RESULT_DIMENSION], unsigned int result_dimension, unsigned short done) {
+
+void save_solution(std::vector<result_t> &best_solutions, unsigned int solution[SOLUTION_LENGTH], unsigned int solution_length, int objVec[RESULT_DIMENSION], unsigned int result_dimension, unsigned short done) {
 	result_t new_solution;
 	for(unsigned int i=0; i<solution_length; i++)
 		new_solution.input[i] = solution[i];
 	for(unsigned int i=0; i<result_dimension; i++)
 		new_solution.output[i] = objVec[i];
 	new_solution.done = done;
+
+	best_solutions.push_back(new_solution);
+}
+
+//-----------------------------------------------
+// filter non optimal solutions, save the best ones.
+void filter_solutions(std::vector<result_t> & best_solutions, unsigned int solution[SOLUTION_LENGTH], unsigned int solution_length, int objVec[RESULT_DIMENSION], unsigned int result_dimension, unsigned short done) {
 	// the first time, keep the first solution
 	if(best_solutions.size() == 0) {
-		best_solutions.push_back(new_solution);
+		save_solution(best_solutions, solution, solution_length, objVec, result_dimension, done);
 		return;
 	}
 	bool keep_it = true;
 	unsigned int i = 0;
 	// find out if the solution is worth being kept
 	while(i < best_solutions.size() && keep_it) {
-		if(best_solutions.at(i).output[0] >= new_solution.output[0]) // TODO: remove hard coded values
-			if(best_solutions.at(i).output[1] >= new_solution.output[1])
+		if(best_solutions.at(i).output[0] >= objVec[0]) // TODO: remove hard coded values
+			if(best_solutions.at(i).output[1] >= objVec[1])
 				keep_it = false;
 		i++;
 	}
@@ -80,13 +86,13 @@ void filter_solutions(std::vector<result_t> & best_solutions, unsigned int solut
 	if(keep_it) {
 		i = 0;
 		while(i < best_solutions.size()) {
-			if(best_solutions.at(i).output[0] < new_solution.output[0])
-				if(best_solutions.at(i).output[1] < new_solution.output[1])
+			if(best_solutions.at(i).output[0] < objVec[0])
+				if(best_solutions.at(i).output[1] < objVec[1])
 					best_solutions.erase(best_solutions.begin()+i);
 			i++;
 		}
 		// save new optimal solution
-		best_solutions.push_back(new_solution);
+		save_solution(best_solutions, solution, solution_length, objVec, result_dimension, done);
 	}
 }
 
@@ -161,14 +167,14 @@ int main(int argc, char *argv[]) {
 		while(best_solutions.size() < procs-1) {
 			generate_solution(solution, N);
 			eval(&instance,(int*) solution,objVec); // can't use mubqp.eval (we need arrays instead of vectors)
-			filter_solutions(best_solutions, solution, N, objVec, M, 1); // TODO: do this between scatter and gather (during the evaluation process) -> need two solutions and objVect arrays
+			filter_solutions(best_solutions, solution, N, objVec, M, 1);
 		}
 
 		//-----------------------------------------------
 		// process communications (distribute the tasks)
 		// one random solution to be sent to each worker
 		for(unsigned int p=1; p<procs; p++)
-			MPI_Send(best_solutions[p-1].input, N, MPI_UNSIGNED, p, 0, com); // TODO: maybe do something with the tag? (0 else...)
+			MPI_Send(best_solutions[p-1].input, N, MPI_UNSIGNED, p, 0, com);
 
 		while(true) {
 			//-----------------------------------------------
@@ -178,14 +184,23 @@ int main(int argc, char *argv[]) {
 				printf("%d %d %d\n",best_solutions.at(i).output[0],best_solutions.at(i).output[1], best_solutions.at(i).done);
 		
 			
+			//-----------------------------------------------
 			// receive results
-			do {
-				MPI_Recv(&result, 1, MPI_result_t, MPI_ANY_SOURCE,MPI_ANY_TAG, com, &status);
+			MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, com, &status);
+			int count;
+			MPI_Get_count(&status, MPI_result_t, &count);
 
-				// filter
-				filter_solutions(best_solutions, result.input, N, result.output, M, 0);
-			} while(status.MPI_TAG == 0);
+			// allocate reception buffer
+			// result_t solutions_buffer[count];
+			std::vector<result_t> solutions_buffer(count);
 
+			MPI_Recv(&solutions_buffer[0], count, MPI_result_t, status.MPI_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status); // Receiving from process we just probed
+
+			// filter
+			for(unsigned int i=0; i<count; i++)
+				filter_solutions(best_solutions, solutions_buffer.at(i).input, N, solutions_buffer.at(i).output, M, 0);
+
+			//----------------------------------------------
 			// send next seed
 			bool sent = false;
 			unsigned solutions_iterator = 0;
@@ -199,19 +214,10 @@ int main(int argc, char *argv[]) {
 				solutions_iterator++;
 			}
 
-			// no more neighbors to explore, let's pick another random solution
 			/*
-			if(!sent) {
-				generate_solution(solution, N);
-				printf("sending new random solution\n");
-				MPI_Send(solution, N, MPI_UNSIGNED, status.MPI_SOURCE, 0, com);
-			}
-			*/
-			// Do nothing for now: will hang on MPI_Recv when finished
-
 			//-----------------------------------------------
 			// plot the results // TODO: do this between scatter and gather (during the evaluation process) or in another process
-/*			std::vector<int> x,y;
+			std::vector<int> x,y;
 			int x_min = INT_MAX, x_max = INT_MIN, y_min = INT_MAX, y_max = INT_MIN;
 			for(unsigned int i=0; i<best_solutions.size(); i++) {
 				x.push_back(best_solutions.at(i).output[0]); // TODO: clean that (faster way to transmit points to gnuplot?)
@@ -220,7 +226,7 @@ int main(int argc, char *argv[]) {
 			gnuplot.reset_plot();
 			gnuplot.remove_tmpfiles();
 			gnuplot.plot_xy(x, y, "best results");
-	*/		
+			*/		
 
 			// sleep(1);
 		}
@@ -249,9 +255,7 @@ int main(int argc, char *argv[]) {
 			}
 
 			// send results
-			for(unsigned int i=0; i<best_solutions.size()-1; i++)
-				MPI_Send(&best_solutions.at(i), 1, MPI_result_t, PROC_NULL, 0, com); // TODO: send all at once
-			MPI_Send(&best_solutions.at(best_solutions.size()-1), 1, MPI_result_t, PROC_NULL, 1, com);
+			MPI_Ssend(&best_solutions[0], best_solutions.size(), MPI_result_t, PROC_NULL, 0, com);
 		}
 	}
 
