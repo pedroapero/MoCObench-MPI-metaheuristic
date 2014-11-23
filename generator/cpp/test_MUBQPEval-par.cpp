@@ -134,18 +134,7 @@ int main(int argc, char *argv[]) {
 	unsigned int solution[SOLUTION_LENGTH]; // one solution
 	int objVec[RESULT_DIMENSION]; // one result
 	std::vector<result_t> best_solutions; // solutions-results storage structure
-
-	//--------------------------------------------
-	// MPIze the type result_t
-	MPI_Datatype MPI_result_t;
-	int array_of_blocklengths[3] = { SOLUTION_LENGTH , RESULT_DIMENSION , 1};
-	MPI_Datatype array_of_types[3] = { MPI_UNSIGNED , MPI_INT , MPI_SHORT};
-	MPI_Aint array_of_displacements[3];
-	array_of_displacements[0] = offsetof(result_t, input);
-	array_of_displacements[1] = offsetof(result_t, output);
-	array_of_displacements[2] = offsetof(result_t, done);
-	MPI_Type_create_struct(3, array_of_blocklengths, array_of_displacements, array_of_types, &MPI_result_t);
-	MPI_Type_commit(&MPI_result_t); // TODO: free the type with MPI_Type_free at the end of execution
+	int position; // buffer cursor
 
 
 	/***************************************************************/
@@ -186,19 +175,29 @@ int main(int argc, char *argv[]) {
 			
 			//-----------------------------------------------
 			// receive results
+			// allocate reception buffer
 			MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, com, &status);
 			int count;
-			MPI_Get_count(&status, MPI_result_t, &count);
+			MPI_Get_count(&status, MPI_PACKED, &count);
+			count /= N + M + 1; // one result is a triplet (input ; output ; done)
+			int buffer_size = count * N + count * M + count;
+			buffer_size *= 4; // one integer = 4 chars
+			int buffer[buffer_size];
 
-			// allocate reception buffer
-			// result_t solutions_buffer[count];
-			std::vector<result_t> solutions_buffer(count);
+			// receive from process we just probed
+			MPI_Recv(buffer, buffer_size, MPI_PACKED, status.MPI_SOURCE, MPI_ANY_TAG, com, &status);
 
-			MPI_Recv(&solutions_buffer[0], count, MPI_result_t, status.MPI_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status); // Receiving from process we just probed
-
-			// filter
-			for(unsigned int i=0; i<count; i++)
-				filter_solutions(best_solutions, solutions_buffer.at(i).input, N, solutions_buffer.at(i).output, M, 0);
+			// rebuild solutions and filter
+			unsigned int input[N];
+			int output[M];
+			int done;
+			position = 0;
+			for(unsigned int i=0; i<count; i++) {
+				MPI_Unpack(buffer, buffer_size, &position, input, N, MPI_INT, com);
+				MPI_Unpack(buffer, buffer_size, &position, output, M, MPI_INT, com);
+				MPI_Unpack(buffer, buffer_size, &position, &done, 1, MPI_INT, com);
+				filter_solutions(best_solutions, input, N, output, M, done);
+			}
 
 			//----------------------------------------------
 			// send next seed
@@ -255,7 +254,16 @@ int main(int argc, char *argv[]) {
 			}
 
 			// send results
-			MPI_Ssend(&best_solutions[0], best_solutions.size(), MPI_result_t, PROC_NULL, 0, com);
+			unsigned int buffer_size = best_solutions.size() * N + best_solutions.size() * M + best_solutions.size() ; // total number of integers to send (includes "done" flags)
+			buffer_size *= 4; // one integer = 4 chars
+			char buffer[buffer_size];
+			position = 0;
+			for(unsigned int i=0; i<best_solutions.size(); i++) {
+				MPI_Pack(best_solutions[i].input, N, MPI_INT, buffer, buffer_size, &position, com);
+				MPI_Pack(best_solutions[i].output, M, MPI_INT, buffer, buffer_size, &position, com);
+				MPI_Pack(&best_solutions[i].done, 1, MPI_INT, buffer, buffer_size, &position, com);
+			}
+			MPI_Ssend(buffer, position, MPI_PACKED, PROC_NULL, 0, com);
 		}
 	}
 
