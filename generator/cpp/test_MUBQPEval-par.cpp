@@ -33,33 +33,28 @@ void interruption_signal_handler(int sig) {
 	exit(sig);
 }
 
-
-// TODO: use real instance values instead of this dirty workaround
-#define SOLUTION_LENGTH 1000 // N
-#define RESULT_DIMENSION 2 // M
-
 // the tuple solution - vector
 struct result_t {
 	// TODO: remove hard coded values!! (input is size N, below output is M, but impossible to use them to fix array size)
-	unsigned int input[SOLUTION_LENGTH]; // tested matrix 
-	int output[RESULT_DIMENSION]; // objvect
+	std::vector<unsigned int> input; // tested matrix
+	std::vector<int> output; // objectif vector
 	unsigned short int done; // 1 if we have evaluated all its neighbors, 0 else (MPI_BOOL does not exist)
 } result;
 
 
 //-----------------------------------------------
 // generate a solution
-void generate_solution(unsigned int solution[SOLUTION_LENGTH], unsigned int size) {
+void generate_solution(std::vector<unsigned int> &solution, unsigned int size) {
+	if(solution.size() != 0) solution.clear();
 	for(unsigned int i=0 ; i<size ; i++)
-		solution[i] = (rand() / (double) RAND_MAX) < 0.5 ? 0 : 1;
+		solution.push_back((rand() / (double) RAND_MAX) < 0.5 ? 0 : 1);
 }
 
-void save_solution(std::vector<result_t> &best_solutions, unsigned int solution[SOLUTION_LENGTH], unsigned int solution_length, int objVec[RESULT_DIMENSION], unsigned int result_dimension, unsigned short done) {
+void save_solution(std::vector<unsigned int> input, std::vector<int> output, unsigned short done, std::vector<result_t> &best_solutions) {
 	result_t new_solution;
-	for(unsigned int i=0; i<solution_length; i++)
-		new_solution.input[i] = solution[i];
-	for(unsigned int i=0; i<result_dimension; i++)
-		new_solution.output[i] = objVec[i];
+
+	new_solution.input = input;
+	new_solution.output = output;
 	new_solution.done = done;
 
 	best_solutions.push_back(new_solution);
@@ -67,18 +62,18 @@ void save_solution(std::vector<result_t> &best_solutions, unsigned int solution[
 
 //-----------------------------------------------
 // filter non optimal solutions, save the best ones.
-void filter_solutions(std::vector<result_t> & best_solutions, unsigned int solution[SOLUTION_LENGTH], unsigned int solution_length, int objVec[RESULT_DIMENSION], unsigned int result_dimension, unsigned short done) {
+void filter_solutions(std::vector<unsigned int> solution, std::vector<int> objVec, unsigned short done, std::vector<result_t> &best_solutions) {
 	// the first time, keep the first solution
 	if(best_solutions.size() == 0) {
-		save_solution(best_solutions, solution, solution_length, objVec, result_dimension, done);
+		save_solution(solution, objVec, done, best_solutions);
 		return;
 	}
 	bool keep_it = true;
 	unsigned int i = 0;
 	// find out if the solution is worth being kept
 	while(i < best_solutions.size() && keep_it) {
-		if(best_solutions.at(i).output[0] >= objVec[0]) // TODO: remove hard coded values
-			if(best_solutions.at(i).output[1] >= objVec[1])
+		if(best_solutions.at(i).output.at(0) >= objVec.at(0)) // TODO: remove hard coded values
+			if(best_solutions.at(i).output.at(1) >= objVec.at(1))
 				keep_it = false;
 		i++;
 	}
@@ -86,13 +81,13 @@ void filter_solutions(std::vector<result_t> & best_solutions, unsigned int solut
 	if(keep_it) {
 		i = 0;
 		while(i < best_solutions.size()) {
-			if(best_solutions.at(i).output[0] < objVec[0])
-				if(best_solutions.at(i).output[1] < objVec[1])
+			if(best_solutions.at(i).output.at(0) < objVec.at(0))
+				if(best_solutions.at(i).output.at(1) < objVec.at(1))
 					best_solutions.erase(best_solutions.begin()+i);
 			i++;
 		}
 		// save new optimal solution
-		save_solution(best_solutions, solution, solution_length, objVec, result_dimension, done);
+		save_solution(solution, objVec, done, best_solutions);
 	}
 }
 
@@ -126,13 +121,14 @@ int main(int argc, char *argv[]) {
   const unsigned int M = mubqp.getM();
 	*/
 
+	// C version
 	Instance instance;
 	loadInstance(argv[1], &instance);
   unsigned int N = instance.N;
   unsigned int M = instance.M;
 
-	unsigned int solution[SOLUTION_LENGTH]; // one solution
-	int objVec[RESULT_DIMENSION]; // one result
+	std::vector<unsigned int> solution(N); // one solution
+	std::vector<int> objVec(M); // one result
 	std::vector<result_t> best_solutions; // solutions-results storage structure
 	int position; // buffer cursor
 
@@ -147,30 +143,32 @@ int main(int argc, char *argv[]) {
 		sigaction(SIGTERM, &action, NULL);
 
 
+		/*
 		Gnuplot gnuplot("test");
 		gnuplot.set_grid();
+		*/
 
 		//-----------------------------------------------
 		// initialization
 		srand(time(NULL));
 		while(best_solutions.size() < procs-1) {
 			generate_solution(solution, N);
-			eval(&instance,(int*) solution,objVec); // can't use mubqp.eval (we need arrays instead of vectors)
-			filter_solutions(best_solutions, solution, N, objVec, M, 1);
+			eval(&instance,(int*) solution.data(), objVec.data()); // can't use mubqp.eval (we need arrays instead of vectors)
+			filter_solutions(solution, objVec, 1, best_solutions);
 		}
 
 		//-----------------------------------------------
 		// process communications (distribute the tasks)
 		// one random solution to be sent to each worker
 		for(unsigned int p=1; p<procs; p++)
-			MPI_Send(best_solutions[p-1].input, N, MPI_UNSIGNED, p, 0, com);
+			MPI_Send(best_solutions[p-1].input.data(), N, MPI_UNSIGNED, p, 0, com);
 
 		while(true) {
 			//-----------------------------------------------
 			// output: print best objective vectors
 			printf("\n\n");
 			for(unsigned int i=0; i<best_solutions.size(); i++)
-				printf("%d %d %d\n",best_solutions.at(i).output[0],best_solutions.at(i).output[1], best_solutions.at(i).done);
+				printf("%d %d %d\n",best_solutions.at(i).output.at(0),best_solutions.at(i).output.at(1), best_solutions.at(i).done);
 		
 			
 			//-----------------------------------------------
@@ -179,24 +177,22 @@ int main(int argc, char *argv[]) {
 			MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, com, &status);
 			int count;
 			MPI_Get_count(&status, MPI_PACKED, &count);
-			count /= N + M + 1; // one result is a triplet (input ; output ; done)
-			int buffer_size = count * N + count * M + count;
-			buffer_size *= 4; // one integer = 4 chars
-			int buffer[buffer_size];
+			int number_of_results = count / ((N + M + 1) * sizeof(int)); // one result is a triplet (input ; output ; done)
+			char buffer[count];
 
 			// receive from process we just probed
-			MPI_Recv(buffer, buffer_size, MPI_PACKED, status.MPI_SOURCE, MPI_ANY_TAG, com, &status);
+			MPI_Recv(buffer, count, MPI_PACKED, status.MPI_SOURCE, MPI_ANY_TAG, com, &status);
 
 			// rebuild solutions and filter
-			unsigned int input[N];
-			int output[M];
+			std::vector<unsigned int> input(N);
+			std::vector<int> output(M);
 			int done;
 			position = 0;
-			for(unsigned int i=0; i<count; i++) {
-				MPI_Unpack(buffer, buffer_size, &position, input, N, MPI_INT, com);
-				MPI_Unpack(buffer, buffer_size, &position, output, M, MPI_INT, com);
-				MPI_Unpack(buffer, buffer_size, &position, &done, 1, MPI_INT, com);
-				filter_solutions(best_solutions, input, N, output, M, done);
+			for(unsigned int i=0; i<number_of_results; i++) { // one iteration per triplet (input, output, done)
+				MPI_Unpack(buffer, count, &position, input.data(), N, MPI_INT, com);
+				MPI_Unpack(buffer, count, &position, output.data(), M, MPI_INT, com);
+				MPI_Unpack(buffer, count, &position, &done, 1, MPI_INT, com);
+				filter_solutions(input, output, done, best_solutions);
 			}
 
 			//----------------------------------------------
@@ -206,7 +202,7 @@ int main(int argc, char *argv[]) {
 			while(solutions_iterator < best_solutions.size() && !sent) {
 				if(best_solutions.at(solutions_iterator).done == 0) {
 					//printf("sending old solution to explore\n");
-					MPI_Send(best_solutions.at(solutions_iterator).input, N, MPI_UNSIGNED, status.MPI_SOURCE, 0, com); // TODO: maybe do something with the tag? (0 else...)
+					MPI_Send(best_solutions.at(solutions_iterator).input.data(), N, MPI_UNSIGNED, status.MPI_SOURCE, 0, com); // TODO: maybe do something with the tag? (0 else...)
 					best_solutions.at(solutions_iterator).done = 1;
 					sent = true;
 				}
@@ -239,29 +235,30 @@ int main(int argc, char *argv[]) {
 			best_solutions.clear();
 			
 			// next seed
-			MPI_Recv(solution, N, MPI_UNSIGNED, PROC_NULL, MPI_ANY_TAG, com, &status);
+			MPI_Recv(solution.data(), N, MPI_UNSIGNED, PROC_NULL, MPI_ANY_TAG, com, &status);
 
 			// iterate through neighbours (N neighbours for a solution of length N)
 			for(unsigned int solution_cursor=0; solution_cursor<N; solution_cursor++) {
-				solution[solution_cursor] = (solution[solution_cursor] == 0 ? 1 : 0); // flip solution_cursor'nth bit
+				solution.at(solution_cursor) = (solution.at(solution_cursor) == 0 ? 1 : 0); // flip solution_cursor'nth bit
 
-				eval(&instance,(int*) solution, objVec); // can't use mubqp.eval (we need arrays instead of vectors)
+				eval(&instance,(int*) solution.data(), objVec.data()); // can't use mubqp.eval (we need arrays instead of vectors)
+				// mubqp.eval(solution, objVec);
 
-				filter_solutions(best_solutions, solution, N, objVec, M, 0);
-				solution[solution_cursor] = (solution[solution_cursor] == 0 ? 1 : 0); // reflip bit back to the original one
+				filter_solutions(solution, objVec, 0, best_solutions);
+				solution.at(solution_cursor) = (solution.at(solution_cursor) == 0 ? 1 : 0); // reflip bit back to the original one
 			}
 
 			// send results
-			unsigned int buffer_size = best_solutions.size() * N + best_solutions.size() * M + best_solutions.size() ; // total number of integers to send (includes "done" flags)
-			buffer_size *= 4; // one integer = 4 chars
+			unsigned int buffer_size = best_solutions.size() * (N + M + 1) ; // total number of integers to send (includes "done" flags)
+			buffer_size *= sizeof(int);
 			char buffer[buffer_size];
 			position = 0;
 			for(unsigned int i=0; i<best_solutions.size(); i++) {
-				MPI_Pack(best_solutions[i].input, N, MPI_INT, buffer, buffer_size, &position, com);
-				MPI_Pack(best_solutions[i].output, M, MPI_INT, buffer, buffer_size, &position, com);
-				MPI_Pack(&best_solutions[i].done, 1, MPI_INT, buffer, buffer_size, &position, com);
+				MPI_Pack(best_solutions.at(i).input.data(), N, MPI_INT, buffer, buffer_size, &position, com);
+				MPI_Pack(best_solutions.at(i).output.data(), M, MPI_INT, buffer, buffer_size, &position, com);
+				MPI_Pack(&best_solutions.at(i).done, 1, MPI_INT, buffer, buffer_size, &position, com);
 			}
-			MPI_Ssend(buffer, position, MPI_PACKED, PROC_NULL, 0, com);
+			MPI_Send(buffer, position, MPI_PACKED, PROC_NULL, 0, com);
 		}
 	}
 

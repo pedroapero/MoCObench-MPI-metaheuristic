@@ -15,8 +15,8 @@ mpic++ test_MUBQPEval-par.cpp
 mpirun -np [number of processes] ./a.out instance.dat
 
 ##TODOs
-- [ ] Send back solutions in blocks
-- [ ] Filter whatever M (remove #defines)
+- [x] Send back solutions in blocks
+- [x] Filter whatever M (remove #defines)
 - [ ] Implement compare function to refactor filter_solutions()
 - [ ] Avoid copies
 - [ ] Avoid returning seed but filter with it
