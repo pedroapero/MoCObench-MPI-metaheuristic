@@ -242,15 +242,13 @@ int main(int argc, char *argv[]) {
 			MPI_Recv(solution, N, MPI_UNSIGNED, PROC_NULL, MPI_ANY_TAG, com, &status);
 
 			// iterate through neighbours (N neighbours for a solution of length N)
-			unsigned int solution_tmp[SOLUTION_LENGTH];
 			for(unsigned int solution_cursor=0; solution_cursor<N; solution_cursor++) {
-				for(unsigned int i=0; i<N; i++)
-					solution_tmp[i] = solution[i];
-				solution_tmp[solution_cursor] = solution[solution_cursor] == 0 ? 1 : 0;
+				solution[solution_cursor] = (solution[solution_cursor] == 0 ? 1 : 0); // flip solution_cursor'nth bit
 
-				eval(&instance,(int*) solution_tmp, objVec); // can't use mubqp.eval (we need arrays instead of vectors)
+				eval(&instance,(int*) solution, objVec); // can't use mubqp.eval (we need arrays instead of vectors)
 
-				filter_solutions(best_solutions, solution_tmp, N, objVec, M, 0);
+				filter_solutions(best_solutions, solution, N, objVec, M, 0);
+				solution[solution_cursor] = (solution[solution_cursor] == 0 ? 1 : 0); // reflip bit back to the original one
 			}
 
 			// send results
