@@ -43,10 +43,9 @@ struct result_t {
 
 //-----------------------------------------------
 // generate a solution
-void generate_solution(std::vector<unsigned int> &solution, unsigned int size) {
-	if(solution.size() != 0) solution.clear();
-	for(unsigned int i=0 ; i<size ; i++)
-		solution.push_back((rand() / (double) RAND_MAX) < 0.5 ? 0 : 1);
+void generate_solution(std::vector<unsigned int> &solution) {
+	for(unsigned int i=0 ; i<solution.size() ; i++)
+		solution.at(i) = ((rand() / (double) RAND_MAX) < 0.5 ? 0 : 1);
 }
 
 void save_solution(std::vector<unsigned int> input, std::vector<int> output, int flipped, std::vector<result_t> &best_solutions) {
@@ -152,7 +151,7 @@ int main(int argc, char *argv[]) {
 		// initialization
 		srand(time(NULL));
 		while(best_solutions.size() < procs-1) {
-			generate_solution(solution, N);
+			generate_solution(solution);
 			eval(&instance,(int*) solution.data(), objVec.data());
 			filter_solutions(solution, objVec, 0, best_solutions);
 		}
