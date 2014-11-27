@@ -60,35 +60,44 @@ void save_solution(std::vector<unsigned int> input, std::vector<int> output, uns
 	best_solutions.push_back(new_solution);
 }
 
+// returns 1 if objVec1 dominates objVec2 ; -1 if objVec2 dominates objVec1 ; 2 in case of error ; 0 else (not comparable)
+int compare_vectors(std::vector<int> objVec1, std::vector<int> objVec2) {
+	if(objVec1.size() != objVec2.size()) return 2;
+
+	for(unsigned int i=0; i < objVec1.size(); i++) {
+		if(objVec1.at(i) > objVec2.at(i)) { // does 1 dominates 2?
+			i++;
+			while(i < objVec1.size()) {
+				if(objVec1.at(i) < objVec2.at(i)) return 0;
+				i++;
+			}
+			return 1;
+		}
+		if(objVec2.at(i) > objVec1.at(i)) { // does 2 dominates 1?
+			i++;
+			while(i < objVec1.size()) {
+				if(objVec2.at(i) < objVec1.at(i)) return 0;
+				i++;
+			}
+			return -1;
+		}
+	}
+	return 0; // comparing same vector!
+}
+
 //-----------------------------------------------
 // filter non optimal solutions, save the best ones.
 void filter_solutions(std::vector<unsigned int> solution, std::vector<int> objVec, unsigned short done, std::vector<result_t> &best_solutions) {
-	// the first time, keep the first solution
-	if(best_solutions.size() == 0) {
-		save_solution(solution, objVec, done, best_solutions);
-		return;
-	}
-	bool keep_it = true;
 	unsigned int i = 0;
 	// find out if the solution is worth being kept
-	while(i < best_solutions.size() && keep_it) {
-		if(best_solutions.at(i).output.at(0) >= objVec.at(0)) // TODO: remove hard coded values
-			if(best_solutions.at(i).output.at(1) >= objVec.at(1))
-				keep_it = false;
+	for(unsigned int i=0; i < best_solutions.size(); i++) {
+		int comparison = compare_vectors(objVec, best_solutions.at(i).output);
+		if(comparison == -1) return;
+		else if(comparison == 1) best_solutions.erase(best_solutions.begin() + i); // the new solution will inevitably be saved in this case
 		i++;
 	}
-	// erase outdated values
-	if(keep_it) {
-		i = 0;
-		while(i < best_solutions.size()) {
-			if(best_solutions.at(i).output.at(0) < objVec.at(0))
-				if(best_solutions.at(i).output.at(1) < objVec.at(1))
-					best_solutions.erase(best_solutions.begin()+i);
-			i++;
-		}
-		// save new optimal solution
-		save_solution(solution, objVec, done, best_solutions);
-	}
+	// so objVec dominates or equals best_solutions => save it
+	save_solution(solution, objVec, done, best_solutions); // will keep the solution if best_solutions is empty
 }
 
 /***************************************************************/
@@ -113,15 +122,7 @@ int main(int argc, char *argv[]) {
 		exit(1);
 	}
 
-	/* we will use the C version instead
-  MUBQPEval mubqp(argv[1]);
-  // size of the bit string
-  const unsigned int N = mubqp.getN();
-  // objective space dimension
-  const unsigned int M = mubqp.getM();
-	*/
-
-	// C version
+	// using the C version
 	Instance instance;
 	loadInstance(argv[1], &instance);
   unsigned int N = instance.N;
@@ -143,10 +144,8 @@ int main(int argc, char *argv[]) {
 		sigaction(SIGTERM, &action, NULL);
 
 
-		/*
 		Gnuplot gnuplot("test");
 		gnuplot.set_grid();
-		*/
 
 		//-----------------------------------------------
 		// initialization
@@ -209,7 +208,7 @@ int main(int argc, char *argv[]) {
 				solutions_iterator++;
 			}
 
-			/*
+			
 			//-----------------------------------------------
 			// plot the results // TODO: do this between scatter and gather (during the evaluation process) or in another process
 			std::vector<int> x,y;
@@ -221,9 +220,6 @@ int main(int argc, char *argv[]) {
 			gnuplot.reset_plot();
 			gnuplot.remove_tmpfiles();
 			gnuplot.plot_xy(x, y, "best results");
-			*/		
-
-			// sleep(1);
 		}
 	}
 
