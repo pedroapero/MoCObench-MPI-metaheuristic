@@ -61,24 +61,21 @@ void save_solution(std::vector<unsigned int> input, std::vector<int> output, int
 
 // returns 1 if objVec1 dominates objVec2 ; -1 if objVec2 dominates objVec1 ; 2 in case of error ; 0 else (not comparable)
 int compare_vectors(std::vector<int> objVec1, std::vector<int> objVec2) {
-	if(objVec1.size() != objVec2.size()) return 2;
+	if(objVec1.size() != objVec2.size()) {
+		printf("warning: comparing two vectors of different sizes!\n");
+		return 2;
+	}
 
 	for(unsigned int i=0; i < objVec1.size(); i++) {
 		if(objVec1.at(i) > objVec2.at(i)) { // does 1 dominates 2?
-			i++;
-			while(i < objVec1.size()) {
-				if(objVec1.at(i) < objVec2.at(i)) return 0;
-				i++;
-			}
-			return 1;
+			for(i = i+1; i<objVec1.size(); i++)
+				if(objVec1.at(i) < objVec2.at(i)) return 0; // no
+			return 1; // yes
 		}
 		if(objVec2.at(i) > objVec1.at(i)) { // does 2 dominates 1?
-			i++;
-			while(i < objVec1.size()) {
-				if(objVec2.at(i) < objVec1.at(i)) return 0;
-				i++;
-			}
-			return -1;
+			for(i = i+1; i<objVec1.size(); i++)
+				if(objVec2.at(i) < objVec1.at(i)) return 0; // no
+			return -1; // yes
 		}
 	}
 	return 0; // comparing same vector!
@@ -88,12 +85,10 @@ int compare_vectors(std::vector<int> objVec1, std::vector<int> objVec2) {
 // filter non optimal solutions, save the best ones.
 void filter_solutions(std::vector<unsigned int> solution, std::vector<int> objVec, int flipped, std::vector<result_t> &best_solutions) {
 	unsigned int i = 0;
-	// find out if the solution is worth being kept
 	for(unsigned int i=0; i < best_solutions.size(); i++) {
 		int comparison = compare_vectors(objVec, best_solutions.at(i).output);
 		if(comparison == -1) return; // new objVec is dominated
 		else if(comparison == 1) best_solutions.erase(best_solutions.begin() + i); // the new vector dominates a best_solution, it will inevitably be saved
-		i++;
 	}
 	// so objVec dominates or equals best_solutions => save it
 	save_solution(solution, objVec, flipped, best_solutions); // will keep the solution if best_solutions is empty
