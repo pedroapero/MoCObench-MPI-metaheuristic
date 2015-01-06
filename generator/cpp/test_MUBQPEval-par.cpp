@@ -1,15 +1,13 @@
-#include <iostream>
 #include <vector>
 #include <string>
 #include <climits>
+#include <time.h>
 
-#include "mubqpEval-C-version.h"
-#include "mubqpEval-C-version.c"
-#include <unistd.h>
-#include "mpi.h"
 #include "signal.h"
+#include "mpi.h"
+
+#include "mubqpEval-C-version.c"
 #include "gnuplot_i.hpp"
-#include <cstddef>
 
 using namespace std;
 
@@ -259,6 +257,9 @@ int main(int argc, char *argv[]) {
 	/*                 Slaves (browse and evaluate neighbors)      */
 	/***************************************************************/
 	if(self != PROC_NULL) {
+		clock_t computation_beginning_timestamp;
+		clock_t solution_generation_beginning_timestamp = clock();
+
 		while(true) {
 			best_solutions.clear();
 			
@@ -271,6 +272,8 @@ int main(int argc, char *argv[]) {
 			//-----------------------------------------------
 			// receive next seeds
 			MPI_Recv(reception_buffer, count, MPI_PACKED, status.MPI_SOURCE, MPI_ANY_TAG, com, &status);
+			printf("%d have waited for new seeds for %lfs\n", self, (double) (clock() - solution_generation_beginning_timestamp) / CLOCKS_PER_SEC);
+			computation_beginning_timestamp = clock();
 
 			// iterate over seeds
 			position = 0;
@@ -299,7 +302,9 @@ int main(int argc, char *argv[]) {
 				MPI_Pack(&best_solutions.at(i).flipped, 1, MPI_INT, sending_buffer, buffer_size, &position, com);
 				MPI_Pack(best_solutions.at(i).output.data(), M, MPI_INT, sending_buffer, buffer_size, &position, com);
 			}
+			printf("%d: total execution time (minus Probe and reception buffer allocations): %.2fs\n", self, (double) (clock() - computation_beginning_timestamp) / CLOCKS_PER_SEC);
 			MPI_Send(sending_buffer, position, MPI_PACKED, PROC_NULL, 0, com);
+			solution_generation_beginning_timestamp = clock();
 		}
 	}
 
