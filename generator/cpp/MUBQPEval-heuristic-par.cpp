@@ -25,6 +25,7 @@ MPI_Status status;
 
 void interruption_signal_handler(int sig) {
 	fflush(stdout);
+	std::cout << "stopping processes..." << std::endl; // TODO: display efficiency informations
 	MPI_Abort(com,EXIT_SUCCESS);
 	MPI_Finalize();
 	exit(sig);
@@ -143,10 +144,11 @@ int main(int argc, char *argv[]) {
 		//-----------------------------------------------
 		// SIGTERM manual interruption handling
 		struct sigaction action;
-		sigaction(SIGTERM, &action, NULL);
+		action.sa_handler = interruption_signal_handler;
+		sigaction(SIGTERM, &action, NULL); // TODO: this is overwritten by MPI's own handler
 
 
-		Gnuplot gnuplot("test");
+		Gnuplot gnuplot("results");
 		gnuplot.set_grid();
 
 		//-----------------------------------------------
@@ -286,7 +288,6 @@ int main(int argc, char *argv[]) {
 					solution.at(solution_cursor) = (solution.at(solution_cursor) == 0 ? 1 : 0); // flip solution_cursor'nth bit
 
 					eval(&instance,(int*) solution.data(), objVec.data());
-
 					filter_solutions(solution, objVec, solution_cursor, i, best_solutions); // i is the solution_number
 					solution.at(solution_cursor) = (solution.at(solution_cursor) == 0 ? 1 : 0); // reflip back to the original bit
 				}
