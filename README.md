@@ -1,5 +1,5 @@
 #MoCObench-MPI-metaheuristic
-optimisation algorithm for mUBQP-like problems.
+Optimisation algorithm for mUBQP-like problems.
 
 ##Prerequisites
 * mpich
@@ -11,7 +11,10 @@ optimisation algorithm for mUBQP-like problems.
 mpic++ MUBQPEval-heuristic-par.cpp
 
 ##Execution
-mpirun -np [number of processes] ./a.out instance.dat
+mpirun -np [number of processes] ./a.out instance.dat [solutions pool size]
+
+The larger the number of solutions to send to the workers, the later the filtering.
+The smaller the number of solutions, the more important the losses in communication time.
 
 ##Interruption
 To interrupt the process and display efficiency informations, send a SIGUSR1 to mpirun's process:
@@ -19,7 +22,7 @@ kill -s [mpirun's PID]
 
 ##Sequential version
 The sequential version takes the MUBQP instance as only parameter:
-./MUBQPEval-heuristic-seq.cpp
+./MUBQPEval-heuristic-seq instance.dat
 
 The ctrl+c interruption will display the efficiency informations.
 
