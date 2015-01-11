@@ -8,17 +8,61 @@
 #include "mubqpEval-C-version.c"
 #include "gnuplot_i.hpp"
 
-void interruption_signal_handler(int sig) {
-	std::cout << "Ending process..." << std::endl; // TODO: display efficiency informations
-	exit(sig);
-}
-
 // the tuple solution - vector
 struct result_t {
 	std::vector<unsigned int> input; // tested matrix
 	std::vector<int> output; // objectif vector
 	int done; // 1 if we have evaluated all its neighbors, 0 else (MPI_BOOL does not exist) // TODO: refactor to unsigned int (or short?)
 };
+
+
+clock_t beginning;
+std::vector<result_t>* _best_solutions; // will be used in sigaction handler (since it's not possible to pass a parameter to a signal handler)
+
+//------------------------------------
+// SIGINT handler
+void interruption_signal_handler(int sig) {
+	double computation_time = (double)(clock() - beginning) / CLOCKS_PER_SEC;
+	std::cout << std::endl << "Ending process..." << std::endl; // TODO: display efficiency informations
+	std::cout << "number of solutions found: " << _best_solutions->size() << std::endl;
+
+	//------------------------------------
+	// Display efficiency informations
+	long double sum_objectives = 0;
+	std::vector<int> best_objectives; // one result
+	std::vector<int> worst_objectives; // one result
+	
+	for(unsigned int i=0; i<_best_solutions->size(); i++)
+		for(unsigned int j=0; j<_best_solutions->at(0).output.size(); j++)
+			sum_objectives += _best_solutions->at(i).output.at(j);
+	sum_objectives /= _best_solutions->size();
+	
+	for(unsigned int i=0; i<_best_solutions->at(0).output.size(); i++) {
+		best_objectives.push_back(INT_MIN);
+		worst_objectives.push_back(INT_MAX);
+	}
+	for(unsigned int i=0; i<_best_solutions->size(); i++) {
+		for(unsigned int j=0; j<best_objectives.size(); j++) {
+			if(_best_solutions->at(i).output.at(j) > best_objectives.at(j))
+				best_objectives.at(j) = _best_solutions->at(i).output.at(j);
+			if(_best_solutions->at(i).output.at(j) < worst_objectives.at(j))
+				worst_objectives.at(j) = _best_solutions->at(i).output.at(j);
+		}
+	}
+
+	std::cout << "average objVec: " << sum_objectives << std::endl;
+	std::cout << "computation time: " << computation_time << "s" << std::endl;
+	std::cout << "best_objectives: [ ";
+	for(unsigned int i=0; i<best_objectives.size(); i++)
+		std::cout << best_objectives.at(i) << " ;";
+	std::cout << " ]" << std::endl << "worst_objectives: [ ";
+	for(unsigned int i=0; i<worst_objectives.size(); i++)
+		std::cout << worst_objectives.at(i) << " ;";
+	std::cout << " ]" << std::endl;
+		
+	exit(sig);
+}
+
 
 void save_solution(std::vector<unsigned int> input, std::vector<int> output, std::vector<result_t> &best_solutions) {
 	result_t new_solution;
@@ -71,14 +115,16 @@ void filter_solutions(std::vector<unsigned int> solution, std::vector<int> objVe
 /***************************************************************/
 
 int main(int argc, char *argv[]) {
+	beginning = clock();
+
   if (argc != 2) {
-    std::cerr << "Invalid number of parameters. \nUsage: ./test_MUBQPEval instance.dat" << std::endl;
+    std::cerr << "Invalid number of parameters. \nUsage: ./MUBQPEval-heuristic-seq instance.dat" << std::endl;
     exit(1);
   }
 
 	struct sigaction action;
 	action.sa_handler = interruption_signal_handler;
-	sigaction(SIGTERM, &action, NULL);
+	sigaction(SIGINT, &action, NULL);
 
 	// using the C version for compatibility with MPI and parallel version
 	Instance instance;
@@ -89,6 +135,7 @@ int main(int argc, char *argv[]) {
 	std::vector<unsigned int> solution(N); // one solution
 	std::vector<int> objVec(M); // one result
 	std::vector<result_t> best_solutions; // solutions-results storage structure
+	_best_solutions = &best_solutions;
 
 	Gnuplot gnuplot("test");
 	gnuplot.set_grid();

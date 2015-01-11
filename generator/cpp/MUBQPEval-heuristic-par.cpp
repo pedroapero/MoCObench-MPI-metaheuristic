@@ -23,13 +23,6 @@ MPI_Status status;
 
 #define PROC_NULL 0
 
-void interruption_signal_handler(int sig) {
-	fflush(stdout);
-	std::cout << "stopping processes..." << std::endl; // TODO: display efficiency informations
-	MPI_Abort(com,EXIT_SUCCESS);
-	MPI_Finalize();
-	exit(sig);
-}
 
 // the tuple solution - vector
 struct result_t {
@@ -39,6 +32,56 @@ struct result_t {
 	int flipped; // used to mark input as a neighbour of another (with the flipped'nth bit flipped) // TODO: refactor to unsigned short int
 	int solution_number;
 };
+
+
+std::vector<result_t>* _best_solutions; // will be used in sigaction handler (since it's not possible to pass a parameter to a signal handler)
+
+void master_interruption_signal_handler(int sig) {
+	fflush(stdout);
+	std::cout << "stopping processes..." << std::endl; // TODO: display efficiency informations
+
+	//------------------------------------
+	// efficiency evaluation
+	std::vector<int> best_objectives; // one result
+	long double sum_best_objectives = 0;
+	std::vector<int> worst_objectives; // one result
+	long double sum_worst_objectives = 0;
+
+	
+	for(unsigned int i=0; i<_best_solutions->at(0).output.size(); i++) {
+		best_objectives.push_back(INT_MIN);
+		worst_objectives.push_back(INT_MAX);
+	}
+	
+	for(unsigned int i=0; i<_best_solutions->size(); i++) {
+		for(unsigned int j=0; j<best_objectives.size(); j++) {
+			if(_best_solutions->at(i).output.at(j) > best_objectives.at(j))
+				best_objectives.at(j) = _best_solutions->at(i).output.at(j);
+			if(_best_solutions->at(i).output.at(j) < worst_objectives.at(j))
+				worst_objectives.at(j) = _best_solutions->at(i).output.at(j);
+		}
+	}
+	
+	for(unsigned int i=0; i<best_objectives.size(); i++) {
+		sum_best_objectives += best_objectives.at(i);
+		sum_worst_objectives += worst_objectives.at(i);
+	}
+
+
+	//------------------------------------
+	// display efficiency informations
+	std::cout << "number of solutions found: " << _best_solutions->size() << std::endl;
+	std::cout << "(best_objectives + worst_objectives) / number of solutions: " << (sum_best_objectives + sum_worst_objectives) / _best_solutions->size() << std::endl;
+
+	MPI_Abort(com,EXIT_SUCCESS);
+	MPI_Finalize();
+	exit(sig);
+}
+
+void slaves_interruption_signal_handler(int sig) {
+	// do nothing, wait for the master to kill you
+	sleep(100);
+}
 
 
 //-----------------------------------------------
@@ -108,7 +151,7 @@ int main(int argc, char *argv[]) {
 
 
   if (argc != 3) {
-    std::cerr << "Invalid number of parameters.\nUsage: ./test_MUBQPEval instance.dat [pool_size]" << std::endl;
+    std::cerr << "Invalid number of parameters.\nUsage: mpirun -np [number of processes} ./MUBQPEval-heuristic-par instance.dat [pool size]" << std::endl;
     exit(1);
   }
 
@@ -126,6 +169,7 @@ int main(int argc, char *argv[]) {
 	std::vector<unsigned int> solution(N); // one solution
 	std::vector<int> objVec(M); // one result
 	std::vector<result_t> best_solutions; // solutions-results storage structure
+	_best_solutions = &best_solutions;
 
 	int pool_size = atoi(argv[2]); // number of solutions to sent to each worker
 	std::vector<std::vector<std::vector<unsigned int> > >
@@ -142,10 +186,10 @@ int main(int argc, char *argv[]) {
 	/***************************************************************/
 	if(self == PROC_NULL) {
 		//-----------------------------------------------
-		// SIGTERM manual interruption handling
+		// SIGUSR1 manual interruption handling
 		struct sigaction action;
-		action.sa_handler = interruption_signal_handler;
-		sigaction(SIGTERM, &action, NULL); // TODO: this is overwritten by MPI's own handler
+		action.sa_handler = master_interruption_signal_handler;
+		sigaction(SIGUSR1, &action, NULL); // TODO: this is overwritten by MPI's own handler
 
 
 		Gnuplot gnuplot("results");
@@ -234,7 +278,7 @@ int main(int argc, char *argv[]) {
 			if(sent_solutions.at(status.MPI_SOURCE).size() == 0) {
 				printf("no more solution to evaluate!\n");
 				sleep(100);
-				interruption_signal_handler(0);
+				master_interruption_signal_handler(0);
 			}
 
 			// send the pool
@@ -261,6 +305,12 @@ int main(int argc, char *argv[]) {
 	if(self != PROC_NULL) {
 		clock_t computation_beginning_timestamp;
 		clock_t solution_generation_beginning_timestamp = clock();
+
+		//-----------------------------------------------
+		// SIGUSR1 manual interruption handling
+		struct sigaction action;
+		action.sa_handler = slaves_interruption_signal_handler;
+		sigaction(SIGUSR1, &action, NULL); // not possible to overwrite mpirun's own SIGINT handler
 
 		while(true) {
 			best_solutions.clear();
