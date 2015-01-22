@@ -42,4 +42,5 @@ The ctrl+c interruption will display the efficiency informations.
 - [x] Send pools of solutions (seeds) (parametrized size)
 - [x] Implement clean sequential version and compare performances
 - [ ] Evaluate computation time and communication time
+- [ ] Dynamic pool size: 1% => (100/procs)% of the total of solutions
 - [ ] Grid5000
