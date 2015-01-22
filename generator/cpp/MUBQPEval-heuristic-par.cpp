@@ -1,15 +1,16 @@
+#include <iostream>
 #include <vector>
 #include <string>
 #include <climits>
 #include <time.h>
+#include <unistd.h>
 
 #include "signal.h"
 #include "mpi.h"
 
 #include "mubqpEval-C-version.c"
-#include "gnuplot_i.hpp"
+// #include "gnuplot_i.hpp"
 
-using namespace std;
 
 /**************************************************************
  * MPI tools
@@ -34,9 +35,10 @@ struct result_t {
 };
 
 
-std::vector<result_t>* _best_solutions; // will be used in sigaction handler (since it's not possible to pass a parameter to a signal handler)
+std::vector<result_t>* _best_solutions; // needs to be global: it will be used in sigaction handler, and it's not possible to pass a parameter to a signal handler
 
 void master_interruption_signal_handler(int sig) {
+	/*
 	fflush(stdout);
 	std::cout << "stopping processes..." << std::endl; // TODO: display efficiency informations
 
@@ -72,6 +74,12 @@ void master_interruption_signal_handler(int sig) {
 	// display efficiency informations
 	std::cout << "number of solutions found: " << _best_solutions->size() << std::endl;
 	std::cout << "(best_objectives + worst_objectives) / number of solutions: " << (sum_best_objectives + sum_worst_objectives) / _best_solutions->size() << std::endl;
+	*/
+
+	//------------------------------------
+	// display best objectif vectors (to be redirected to instance file)
+	for(unsigned int i=0; i<_best_solutions->size(); i++)
+		std::cout << _best_solutions->at(i).output.at(0) << " " << _best_solutions->at(i).output.at(1) << std::endl; // WARN: only for two dimensionnal objectif vectors
 
 	MPI_Abort(com,EXIT_SUCCESS);
 	MPI_Finalize();
@@ -138,6 +146,17 @@ void filter_solutions(std::vector<unsigned int> solution, std::vector<int> objVe
 	save_solution(solution, objVec, flipped, solution_number, best_solutions); // will keep the solution if best_solutions is empty
 }
 
+
+//-----------------------------------------------
+// Display best objectif vectors
+void display_vectors(std::vector<result_t> best_solutions) {
+	printf("\n\n");
+	for(unsigned int i=0; i<best_solutions.size(); i++)
+		printf("%d %d %d\n",best_solutions.at(i).output.at(0),best_solutions.at(i).output.at(1), best_solutions.at(i).done);
+	printf("(%d solutions)\n", best_solutions.size());
+}
+
+
 /***************************************************************/
 /*                 Main                                        */
 /***************************************************************/
@@ -191,9 +210,10 @@ int main(int argc, char *argv[]) {
 		action.sa_handler = master_interruption_signal_handler;
 		sigaction(SIGUSR1, &action, NULL); // TODO: this is overwritten by MPI's own handler
 
-
+		/*
 		Gnuplot gnuplot("results");
 		gnuplot.set_grid();
+		*/
 
 		//-----------------------------------------------
 		// initialization
@@ -220,13 +240,8 @@ int main(int argc, char *argv[]) {
 		}
 
 		while(true) {
-			//-----------------------------------------------
-			// output: print best objective vectors
-			printf("\n\n");
-			for(unsigned int i=0; i<best_solutions.size(); i++)
-				printf("%d %d %d\n",best_solutions.at(i).output.at(0),best_solutions.at(i).output.at(1), best_solutions.at(i).done);
-			printf("(%d solutions)\n", best_solutions.size());
-		
+			// output
+			// display_vectors(best_solutions);
 			
 			//-----------------------------------------------
 			// receive results
@@ -287,6 +302,7 @@ int main(int argc, char *argv[]) {
 			
 			//-----------------------------------------------
 			// plot the results
+			/*
 			std::vector<int> x,y;
 			int x_min = INT_MAX, x_max = INT_MIN, y_min = INT_MAX, y_max = INT_MIN;
 			for(unsigned int i=0; i<best_solutions.size(); i++) {
@@ -296,6 +312,7 @@ int main(int argc, char *argv[]) {
 			gnuplot.reset_plot();
 			gnuplot.remove_tmpfiles();
 			gnuplot.plot_xy(x, y, "best results");
+			*/
 		}
 	}
 
@@ -324,7 +341,7 @@ int main(int argc, char *argv[]) {
 			//-----------------------------------------------
 			// receive next seeds
 			MPI_Recv(reception_buffer, count, MPI_PACKED, status.MPI_SOURCE, MPI_ANY_TAG, com, &status);
-			printf("%d have waited for new seeds for %lfs\n", self, (double) (clock() - solution_generation_beginning_timestamp) / CLOCKS_PER_SEC);
+			// printf("%d have waited for new seeds for %lfs\n", self, (double) (clock() - solution_generation_beginning_timestamp) / CLOCKS_PER_SEC);
 			computation_beginning_timestamp = clock();
 
 			// iterate over seeds
@@ -353,7 +370,7 @@ int main(int argc, char *argv[]) {
 				MPI_Pack(&best_solutions.at(i).flipped, 1, MPI_INT, sending_buffer, buffer_size, &position, com);
 				MPI_Pack(best_solutions.at(i).output.data(), M, MPI_INT, sending_buffer, buffer_size, &position, com);
 			}
-			printf("%d: total execution time (minus Probe and reception buffer allocations): %.2fs\n", self, (double) (clock() - computation_beginning_timestamp) / CLOCKS_PER_SEC);
+			// printf("%d: total execution time (minus Probe and reception buffer allocations): %.2fs\n", self, (double) (clock() - computation_beginning_timestamp) / CLOCKS_PER_SEC);
 			MPI_Send(sending_buffer, position, MPI_PACKED, PROC_NULL, 0, com);
 			solution_generation_beginning_timestamp = clock();
 		}

@@ -69,7 +69,7 @@ void save_solution(std::vector<unsigned int> input, std::vector<int> output, std
 
 	new_solution.input = input;
 	new_solution.output = output;
-	new_solution.done = false;
+	new_solution.done = 0;
 
 	best_solutions.push_back(new_solution);
 }
@@ -137,8 +137,10 @@ int main(int argc, char *argv[]) {
 	std::vector<result_t> best_solutions; // solutions-results storage structure
 	_best_solutions = &best_solutions;
 
+	/*
 	Gnuplot gnuplot("test");
 	gnuplot.set_grid();
+	*/
 
   //-----------------------------------------------
   // initializing the seed
@@ -186,6 +188,7 @@ int main(int argc, char *argv[]) {
 
 		//-----------------------------------------------
 		// plot the results
+		/*
 		std::vector<int> x,y;
 		int x_min = INT_MAX, x_max = INT_MIN, y_min = INT_MAX, y_max = INT_MIN;
 		for(unsigned int i=0; i<best_solutions.size(); i++) {
@@ -195,8 +198,10 @@ int main(int argc, char *argv[]) {
 		gnuplot.reset_plot();
 		gnuplot.remove_tmpfiles();
 		gnuplot.plot_xy(x, y, "best results");
+		*/
 	}
 	
+	interruption_signal_handler(SIGINT);
 
   return 0;
 }
