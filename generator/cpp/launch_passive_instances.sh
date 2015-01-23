@@ -1,9 +1,12 @@
 #!/bin/bash
+# To be launched with: oarsub -l /nodes=[number of nodes],walltime=xx:xx:xx launch_passive_instances.sh
 
 binary="MUBQPEval-heuristic-par"
+machinefile="machines.txt"
+cat $OAR_FILE_NODES | uniq > $machinefile
 
 ########## Checking parameters ##########
-if [ ! $# -eq 5 ]
+if [ ! $# -eq 5 ] 
 then
 	echo "usage: launch_instances.sh [number of instances] [instance duration] [number of processes] [instance file] [pool size]"
 	exit -1
@@ -14,7 +17,7 @@ procs=$3
 instance=$4
 pool_size=$5
 
-if [ $procs -lt 2 ]
+if [ $procs -lt 2 ] 
 then
 	echo "minimum number of processes: 2 (it's a master/slaves schema)"
 	exit -1
@@ -40,7 +43,8 @@ do
 	output="${output%.*}_"$duration"_"$procs"_"$pool_size"_"$instance_number".txt"
 
 	########## Launching instance ##########
-	mpirun -np $procs ./$binary $instance $pool_size > $output &
+	mpirun --mca plm_rsh_agent "oarsh" --mca pml ob1 --mca btl tcp,self -machinefile $machinefile -np $procs ./$binary $instance $pool_size >> $output &
+
 	pid=$!
 	sleep $duration
 	kill -s SIGUSR1 $pid
