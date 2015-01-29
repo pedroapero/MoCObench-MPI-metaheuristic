@@ -153,7 +153,7 @@ void display_vectors(std::vector<result_t> best_solutions) {
 	printf("\n\n");
 	for(unsigned int i=0; i<best_solutions.size(); i++)
 		printf("%d %d %d\n",best_solutions.at(i).output.at(0),best_solutions.at(i).output.at(1), best_solutions.at(i).done);
-	printf("(%d solutions)\n", best_solutions.size());
+	printf("(%d solutions)\n", (int)best_solutions.size());
 }
 
 
