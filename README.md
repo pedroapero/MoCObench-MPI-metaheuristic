@@ -31,6 +31,22 @@ The sequential version takes the MUBQP instance as only parameter:
 
 The ctrl+c interruption will display the efficiency informations.
 
+##Deployment
+* Local deployment:
+```
+./launch_instances.sh [number of instances] [instance duration (seconds)] [number of processes]
+[instance file] [pool size]
+```
+
+* Passive Grid5000 deployment:
+```
+oarsub -l /nodes=[number of nodes],walltime=xx:xx:xx "./launch_passive_instances.sh [number of
+instances] [instance duration (seconds)] [instance file] [pool size]"
+```
+
+Objective vectors will be stored in files named: [instance file]_[duration]_[number of
+processes]_[pool size]_[instance number].txt
+
 ##TODOs
 - [x] Send back solutions in blocks
 - [x] Filter whatever M (remove #defines)
@@ -44,4 +60,4 @@ The ctrl+c interruption will display the efficiency informations.
 - [ ] Evaluate computation time and communication time
 - [ ] Dynamic pool size: 25% ; 50% ; 75% or 100% of (number of solutions to explore) / (number of
 	processes)
-- [ ] Grid5000
+- [x] Grid5000
