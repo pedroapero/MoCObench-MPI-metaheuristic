@@ -5,16 +5,16 @@ binary="MUBQPEval-heuristic-par"
 machinefile="machines.txt"
 if [ ! -f $OAR_FILE_NODES ]
 then
-	echo "No reservation made. Launch with: oarsub -l /nodes=[number of nodes],walltime=xx:xx:xx launch_passive_instances.sh"
+	echo "No reservation made. Launch with: oarsub -l /nodes=[number of nodes],walltime=xx:xx:xx launch_passive_instances.sh [number of instances] [instance duration (seconds)] [instance file] [pool size]"
 	exit -1
 fi
 cat $OAR_FILE_NODES > $machinefile # ok for MUBQPEval-heuristic-par.cpp (will always be more than 2 cores, we reserved 8-cores machines)
 procs=$(wc -l $machinefile | cut -d " " -f 1)
 
 ########## Checking parameters ##########
-if [ ! $# -eq 5 ] 
+if [ ! $# -eq 4 ] 
 then
-	echo "usage: launch_instances.sh [number of instances] [instance duration] [instance file] [pool size]"
+	echo "usage: launch_instances.sh [number of instances] [instance duration (seconds)] [instance file] [pool size]"
 	exit -1
 fi
 number_of_instances=$1

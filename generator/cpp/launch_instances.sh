@@ -5,7 +5,7 @@ binary="MUBQPEval-heuristic-par"
 ########## Checking parameters ##########
 if [ ! $# -eq 5 ]
 then
-	echo "usage: launch_instances.sh [number of instances] [instance duration] [number of processes] [instance file] [pool size]"
+	echo "usage: launch_instances.sh [number of instances] [instance duration (seconds)] [number of processes] [instance file] [pool size]"
 	exit -1
 fi
 number_of_instances=$1

@@ -1,0 +1,6 @@
+set terminal svg
+set grid
+set output "stats.svg"
+set xlabel "nombre de processus"
+set ylabel "moyenne du nombre de solutions obtenues"
+plot "stats" with lines

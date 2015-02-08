@@ -35,7 +35,8 @@ struct result_t {
 };
 
 
-std::vector<result_t>* _best_solutions; // needs to be global: it will be used in sigaction handler, and it's not possible to pass a parameter to a signal handler
+// std::vector<result_t>* _best_solutions; // needs to be global: it will be used in sigaction handler, and it's not possible to pass a parameter to a signal handler
+std::vector<result_t> best_solutions; // solutions-results storage structure
 
 void master_interruption_signal_handler(int sig) {
 	/*
@@ -78,8 +79,8 @@ void master_interruption_signal_handler(int sig) {
 
 	//------------------------------------
 	// display best objectif vectors (to be redirected to instance file)
-	for(unsigned int i=0; i<_best_solutions->size(); i++)
-		std::cout << _best_solutions->at(i).output.at(0) << " " << _best_solutions->at(i).output.at(1) << std::endl; // WARN: only for two dimensionnal objectif vectors
+	for(unsigned int i=0; i<best_solutions.size(); i++)
+		std::cout << best_solutions.at(i).output.at(0) << " " << best_solutions.at(i).output.at(1) << std::endl; // WARN: only for two dimensionnal objectif vectors
 
 	MPI_Abort(com,EXIT_SUCCESS);
 	MPI_Finalize();
@@ -187,8 +188,6 @@ int main(int argc, char *argv[]) {
 
 	std::vector<unsigned int> solution(N); // one solution
 	std::vector<int> objVec(M); // one result
-	std::vector<result_t> best_solutions; // solutions-results storage structure
-	_best_solutions = &best_solutions;
 
 	int pool_size = atoi(argv[2]); // number of solutions to sent to each worker
 	std::vector<std::vector<std::vector<unsigned int> > >
@@ -220,8 +219,11 @@ int main(int argc, char *argv[]) {
 		srand(time(NULL));
 		while(best_solutions.size() < procs-1) {
 			generate_solution(solution);
+			/*
 			eval(&instance,(int*) solution.data(), objVec.data());
 			filter_solutions(solution, objVec, 0, 0, best_solutions);
+			*/
+			save_solution(solution, objVec, 0, 0, best_solutions);
 		}
 
 		//-----------------------------------------------
@@ -329,8 +331,9 @@ int main(int argc, char *argv[]) {
 		action.sa_handler = slaves_interruption_signal_handler;
 		sigaction(SIGUSR1, &action, NULL); // not possible to overwrite mpirun's own SIGINT handler
 
+		std::vector<result_t> local_best_solutions; // solutions-results storage structure
 		while(true) {
-			best_solutions.clear();
+			local_best_solutions.clear();
 			
 			MPI_Probe(PROC_NULL, MPI_ANY_TAG, com, &status);
 			int count;
@@ -355,20 +358,20 @@ int main(int argc, char *argv[]) {
 					solution.at(solution_cursor) = (solution.at(solution_cursor) == 0 ? 1 : 0); // flip solution_cursor'nth bit
 
 					eval(&instance,(int*) solution.data(), objVec.data());
-					filter_solutions(solution, objVec, solution_cursor, i, best_solutions); // i is the solution_number
+					filter_solutions(solution, objVec, solution_cursor, i, local_best_solutions); // i is the solution_number
 					solution.at(solution_cursor) = (solution.at(solution_cursor) == 0 ? 1 : 0); // reflip back to the original bit
 				}
 			}
 
 			// send results
-			unsigned int buffer_size = best_solutions.size() * (1 + 1 + M) ; // total number of integers to send: flipped number, solution number, objVec
+			unsigned int buffer_size = local_best_solutions.size() * (1 + 1 + M) ; // total number of integers to send: flipped number, solution number, objVec
 			buffer_size *= sizeof(int);
 			char sending_buffer[buffer_size];
 			position = 0;
-			for(unsigned int i=0; i<best_solutions.size(); i++) {
-				MPI_Pack(&best_solutions.at(i).solution_number, 1, MPI_INT, sending_buffer, buffer_size, &position, com);
-				MPI_Pack(&best_solutions.at(i).flipped, 1, MPI_INT, sending_buffer, buffer_size, &position, com);
-				MPI_Pack(best_solutions.at(i).output.data(), M, MPI_INT, sending_buffer, buffer_size, &position, com);
+			for(unsigned int i=0; i<local_best_solutions.size(); i++) {
+				MPI_Pack(&local_best_solutions.at(i).solution_number, 1, MPI_INT, sending_buffer, buffer_size, &position, com);
+				MPI_Pack(&local_best_solutions.at(i).flipped, 1, MPI_INT, sending_buffer, buffer_size, &position, com);
+				MPI_Pack(local_best_solutions.at(i).output.data(), M, MPI_INT, sending_buffer, buffer_size, &position, com);
 			}
 			// printf("%d: total execution time (minus Probe and reception buffer allocations): %.2fs\n", self, (double) (clock() - computation_beginning_timestamp) / CLOCKS_PER_SEC);
 			MPI_Send(sending_buffer, position, MPI_PACKED, PROC_NULL, 0, com);
